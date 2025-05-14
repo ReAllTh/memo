@@ -5,3 +5,7 @@ if [ -f package.json ]; then
   npm i
   npm run build
 fi
+
+# add gem and bundle mirror.
+gem sources --add https://mirrors.tuna.tsinghua.edu.cn/rubygems/ --remove https://rubygems.org/
+bundle config mirror.https://rubygems.org https://mirrors.tuna.tsinghua.edu.cn/rubygems

@@ -50,10 +50,24 @@ tags: [Dev Container, IDEA, Docker]
 - 你的 PC 上有一个 [正在运行的 SSH 代理](https://www.jetbrains.com/zh-cn/help/idea/2025.1/using-ssh-keys.html)
   > 在 Windows 上，当你使用 SSH URL 从 GitHub 仓库构建一个 Dev Container 时，
   > `- git clone` 操作（将 仓库 源码克隆到连接到辅助容器的 Docker 卷）无法在没有运行 SSH 代理的情况下执行，
-  > **并且这种情况下，IDEA 不会停止构建 Dev Container 并报错，而是会一直卡在 Creating Dev Container... 这一步（在这里耗了很长时间）**
-- 你的 PC 上已经安装了 [Docker](https://docs.docker.com/get-docker/) ，用于承载 Dev Container  
+  > **并且这种情况下，IDEA 不会停止构建并报错，而是会一直卡在 Creating Dev Container...**
+- 你的 PC 上已经安装了 [Docker](https://docs.docker.com/get-docker/) ，用于承载 Dev Container
+  > Docker 安装时保持默认设置，另外，因为 Docker 依赖 Linux 的 namespace 技术做隔离，所以还需要在 Windows 上安装 WSL：
+  > `wsl --install` 然后等待安装成功即可
 - 你的 Docker 资源满足后端的 [最低系统要求](https://www.jetbrains.com/zh-cn/help/idea/2025.1/prerequisites.html)
 
-## 先决条件准备
+## 构建 Dev Container
 
+当你一切都准备好后，可以在 IDEA 中打开 `.devcontainer` 下的 `devcontainer.json` 文件
 
+在左侧边栏点击 蓝色箱子图标，选择 **Create Dev Container and Clone Sources...** 或者是 **Create Dev Container and Mount Sources...**
+
+![dev container build](../assets/img/idea_dev_container_build.png)
+
+前者会从你的远程 Git 仓库中 Clone 代码，后者会把你本地的代码挂载到容器中，根据自己的需要做选择
+
+> 挂载源代码时，你的本地项目目录会被挂载（链接）到容器中，容器内的任何更改都会反映到你的本地文件中，
+> 反之亦然。 此过程比 **Create Dev Container and Clone Sources...** 操作更耗时，但对于希望在本地 IDE 中编辑文件并在容器中运行它们的开发工作流可能会有所帮助
+> 
+> 克隆源代码时，代码会从远程存储库（如 GitHub）克隆到容器中。 虽然此过程比 **Create Dev Container and Mount Sources...** 操作更快，但请注意，整个 Git 存储库都会被检出。
+> 然而，此操作对于希望获得一个隔离的、可复现的环境而不影响本地文件的情况非常有用

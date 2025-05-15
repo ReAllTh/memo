@@ -9,3 +9,5 @@ if [ -f package.json ]; then
   npm i
   npm run build
 fi
+
+echo "create complete."

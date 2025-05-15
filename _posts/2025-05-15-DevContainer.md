@@ -71,3 +71,23 @@ tags: [Dev Container, IDEA, Docker]
 > 
 > 克隆源代码时，代码会从远程存储库（如 GitHub）克隆到容器中。 虽然此过程比 **Create Dev Container and Mount Sources...** 操作更快，但请注意，整个 Git 存储库都会被检出。
 > 然而，此操作对于希望获得一个隔离的、可复现的环境而不影响本地文件的情况非常有用
+
+在构建时，有可能卡在 卡在 **Creating Dev Container...** 不动，这是因为你 PC 上的 SSH-Agent 没有启动
+
+在 **任务管理器 -> 服务** 中找到 **ssh-agent** 手动启动即可
+
+![ssh_agent](../assets/img/ssh_agent.png)
+
+## 连接容器
+
+等待容器创建好之后，你可以点击 **connect** 连接容器，进行开发
+
+![ide_dev_container_connect](../assets/img/ide_dev_container_connect.png)
+
+## IDEA 故障解决
+
+如果遇到 IDEA 长时间没有反应，或者经常崩溃，可以检查下 IDEA 的日志
+
+看看是哪里有问题，日志定位方式如下图
+
+![idea_log](../assets/img/idea_log.png)

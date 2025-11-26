@@ -94,7 +94,7 @@ mermaid: true
     JSR-133 内存模型使用 happens-before 规则，规定一个操作在什么情况下对另一个操作是可见的，如果 A happens-before B，那么 A 操作对 B 操作是可见的。
     
     > 当我们说 A 操作可见于 B 操作时，我们指的是 A 的操作结果可见于 B，并不意味着 A 的执行先于 B 发生。
-    > {: .prompt-tip }
+    {: .prompt-tip }
     
     一共有 8 个，但与开发者关系比较大的有 4 个规则：
     

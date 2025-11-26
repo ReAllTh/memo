@@ -1,6 +1,6 @@
 ---
 layout: post
-title:  Java 并发编程的艺术》阅读笔记
+title:  《Java 并发编程的艺术》阅读笔记
 date:   2025-09-07 21:37:49 +0000
 tags: [Java, 并发编程]
 mermaid: true

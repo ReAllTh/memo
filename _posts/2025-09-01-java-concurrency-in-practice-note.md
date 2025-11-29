@@ -1,0 +1,739 @@
+---
+layout: post
+title:  《Java Concurrency In Practice》阅读笔记（更新中...）
+date:   2025-10-01 22:57:49 +0000
+tags: [Java, 并发编程, 阅读笔记]
+---
+
+这本书的整体结构如下：
+
+- Chapter 1：介绍并发解决什么问题，又带来什么问题。
+- Part I：介绍并发和线程安全的理论，讲解如何用并发库构建线程安全的类。
+  - Chapter 2&3：整本书的理论基石，探讨关于如何避免并发问题、如何构建线程安全的类以及如何确认线程安全的理论。
+  - Chapter 4：探讨如何用线程安全的类构建更大的线程安全的类。
+  - Chapter 5；探讨并发库提供的并发工具，包括线程安全的集合和同步器。
+- Part II：讲解如何利用线程来提高并发应用的吞吐量和响应速度。
+  - Chapter 6：探讨如何识别可并行化的任务并使用 task-execution 框架执行它。
+  - Chapter 7：探讨如何让任务和线程在正常结束前提前终止，程序处理取消与关闭的方式，往往是区分真正稳健的并发应用程序与仅能勉强运行的并发程序的关键要素之一。
+  - Chapter 8：探讨 task-execution 框架的一些高级特性。
+  - Chapter 9：探讨在单线程子系统中提高响应速度的技术。
+- Part III：讲解如何确保并发程序在可接受的性能下能确实按照期望运行。
+  - Chapter 10：探讨如何防止程序因活跃性故障而无法继续执行。
+  - Chapter 11：探讨如何提高并发代码的性能和可扩展性。
+  - Chapter 12：探讨如何测试并发代码的正确性和性能。
+- Part IV：讲解如何使用锁机制、原子变量、无锁算法和开发自定义同步器。
+
+## Chapter 1 - Introduction
+
+使用并发的好处包括：更好地利用多核处理器、简化复杂任务的建模、简化异步事件的处理、提升应用响应速度。
+
+并发带来的问题包括：
+
+- **线程安全问题**：多个线程的执行顺序是随机的，执行顺序的不安全（不安全序列）会导致意外的结果。
+
+  ```java
+  /**
+   * 经典的并发问题案例
+   * 
+   * 这段代码期望每个线程得到唯一的 value，但实际执行起来却不能达到目的
+   */
+  public class UnsafeSequence {
+      private int value;
+      
+      public int getNext() {
+      	return value++;
+  	}
+  }
+  ```
+
+  问题的核心在于 `value++` 看似是一个操作，但实际上会被编译成三个操作：读值、改值、写值。
+
+  如果某一时刻两个线程 A 和 B 读到了相同的 value，那么它们 `getNext()` 会得到相同的值。
+
+  <img src="./../assets/img/unsafe-sequence.png" alt="unsafe-sequence" style="zoom: 33%;" />
+
+- **活跃性故障问题**：线程的活跃性指的是一个线程最终能够取得进展并完成其任务的能力。单线程活跃性问题的形式是死循环。多线程的活跃性问题的形式则可能是死锁、饥饿和活锁问题。这种问题往往依赖线程的执行顺序，不好复现。
+- **性能问题**：多线程的上下文切换和线程同步会引入额外的开销，这可能会导致应用程序的请求服务时间和响应时间延长、吞吐量降低、资源消耗增加和拓展性降低等问题。
+
+## Chapter 2 - Thread Safety
+
+这一章讲了以下概念：
+
+- 什么是线程安全
+- 原子性
+- 锁
+- 用锁保护状态
+- 活跃性和性能
+
+### 什么是线程安全？
+
+如果一个对象是线程安全的，那么任何操作序列（对公共方法的调用以及对公共字段的读取或写入）都不应违反其任何不变量或后置条件。对线程安全类的实例执行的任何顺序或并发的操作都不会导致该实例处于无效状态。
+
+> 不变量不是指常量，而是指对象状态的逻辑断言。
+>
+> 在对象生命周期的任何稳定点（即方法调用之间）都必须为真。它是对象 “有效状态” 的定义。
+{: .prompt-info }
+
+编写线程安全的代码，其核心在于控制对共享可变状态的访问。
+
+> 非正式地讲，所谓状态，就是指对象及其引用对象的实例变量和静态变量。
+{: .prompt-info }
+
+可以从两个方面实现线程安全：
+
+- **对于访问者**：使用同步技术控制线程的对共享变量的访问顺序。
+- **对于被访问者**：使用访问修饰符控制变量的共享范围和可变性。
+
+从控制变量共享范围的角度上讲，良好的封装有助于实现线程安全的对象。
+
+更进一步地，无状态的对象总是线程安全的。
+
+```java
+/**
+ * 这个类没有状态，它总是线程安全的
+ */
+public class StatelessFactorizer implements Servlet {
+    public void service(ServletRequest req, ServletResponse resp) {
+        BigInteger i = extractFromRequest(req);
+        BigInteger[] factors = factor(i); 
+        encodeIntoResponse(resp, factors);
+    }
+}
+```
+
+---
+
+### 原子性
+
+若从执行操作 A 的线程视角观察，当另一个线程执行操作 B 时，要么能观察到 B 已全部执行完成的状态，要么完全观察不到 B 的任何执行效果，则称操作 A 与 B 彼此之间具有原子性。若某个操作对于所有作用于同一状态的操作（包括其自身）都满足原子性，则该操作本身是原子操作。
+
+大多数竞态条件的特征是：利用可能过时的观察结果做出决策或进行计算。像 `value++` 这样的 “读、改、写” 操作就是典型的竞态条件。
+
+```java
+public class LazyInitRace {
+    private ExpensiveObject instance = null; 
+    public ExpensiveObject getInstance() {
+        // 这里的先检查后决策是典型的竞态条件
+        if (instance == null)
+        	instance = new ExpensiveObject(); 
+        return instance;
+    }
+}
+
+public class UnsafeCountingFactorizer implements Servlet {
+    private long count = 0;
+    
+    public long getCount() { return count; } 
+    
+    public void service(ServletRequest req, ServletResponse resp) {
+        BigInteger i = extractFromRequest(req);
+        BigInteger[] factors = factor(i);
+        // 这里的 ++count 操作是典型的竞态条件
+        ++count;
+        encodeIntoResponse(resp, factors);
+    }
+}
+```
+
+可以使用原子类实现原子操作。
+
+```java
+public class CountingFactorizer implements Servlet {
+    // 使用原子类
+    private final AtomicLong count = new AtomicLong(0);
+    
+    public long getCount() { return count.get(); }
+    
+    public void service(ServletRequest req, ServletResponse resp) {
+        BigInteger i = extractFromRequest(req);
+        BigInteger[] factors = factor(i); 
+        // 执行原子操作
+        count.incrementAndGet();
+        encodeIntoResponse(resp, factors);
+	}
+}
+```
+
+### 锁
+
+需要维护多个共享变量时，仅引入额外的原子类并不能使达到线程安全的目的。
+
+```java
+/**
+ * 因数分解器，它会缓存上次因数分解的结果
+ * 这个例子使用两个原子变量来分别维护两个共享变量，但是会产生预期之外的结果
+ */
+public class UnsafeCachingFactorizer implements Servlet {
+    private final AtomicReference<BigInteger> lastNumber = new AtomicReference<BigInteger>();
+    private final AtomicReference<BigInteger[]> lastFactors = new AtomicReference<BigInteger[]>();
+    
+    public void service(ServletRequest req, ServletResponse resp) {
+        BigInteger i = extractFromRequest(req);
+        if (i.equals(lastNumber.get()))
+        	encodeIntoResponse(resp, lastFactors.get() ); 
+        else {
+            BigInteger[] factors = factor(i); 
+            // 这两个操作各自是原子的，但是一起出现时，不代表也是原子的，仍然会有并发问题
+            lastNumber.set(i);
+            // 在这个稳定点，不变量被破坏，实例处于无效状态
+            lastFactors.set(factors); 
+            encodeIntoResponse(resp, factors);
+        }
+    }
+}
+```
+
+Java 内置了 `synchronized` 关键字作为互斥锁。
+
+可以通过传入不同的锁对象和控制同步代码块的大小来控制锁的粒度。粒度过粗的锁会导致程序的性能下降。
+
+```java
+/**
+ * 在实例方法上使用 synchronized 关键字，以当前对象的监视器作为锁对象
+ */
+public class SynchronizedFactorizer implements Servlet {
+    @GuardedBy("this") private BigInteger lastNumber;
+    @GuardedBy("this") private BigInteger[] lastFactors;
+    
+    // synchronized 关键字直接作用在方法上，强制所有线程串行化执行此方法，性能较差
+    public synchronized void service(ServletRequest req, ServletResponse resp) {
+        BigInteger i = extractFromRequest(req); 
+        if (i.equals(lastNumber))
+        	encodeIntoResponse(resp, lastFactors); 
+        else {
+            BigInteger[] factors = factor(i); 
+            lastNumber = i;
+            lastFactors = factors; 
+            encodeIntoResponse(resp, factors);
+        }
+    }
+}
+```
+
+`synchronized` 锁是可重入的，这意味着当持有锁的线程再次进入同步代码块时不会被阻塞。
+
+```java
+public class Widget {
+    public synchronized void doSomething() {
+    }
+}
+...
+/**
+ * 如果不可重入，这个例子会死锁，但 synchronized 锁是可重入的，所以不会死锁
+ */
+public class LoggingWidget extends Widget {
+    public synchronized void doSomething() {
+        System.out.println(toString() + ": calling doSomething"); 
+        // 此处会尝试重入
+        super.doSomething();
+    }
+}
+```
+
+### 用锁保护状态
+
+对于那些可被多个线程访问的共享变量，对这些变量的所有访问操作都必须在同一把锁的保护下进行。在这种情况下，我们称该变量由该锁所保护。
+
+对于每个涉及多个共享变量的不变量，该不变量的所有变量都必须由同一把锁保护。
+
+多个原子操作的直接组合并不会形成一个大的原子操作 ，还需要额外借助锁来把这些原子操作的组合原子化。
+
+### 活跃性和性能
+
+线程的活跃性指的是一个线程最终能够取得进展并完成其任务的能力。而性能则包含请求服务时间、响应时间、吞吐量等。
+
+不恰当的同步操作会导致大量线程被阻塞，导致这些被阻塞线程的活跃性降低。整个应用的响应时间和吞吐量等指标也会变差。
+
+使用锁时，需要考虑这些问题：
+
+- 应该避免在锁中执行耗时操作。
+
+- 应该避免锁的粒度过大。
+
+- 在性能可以接受的情况下，不要过早地优化锁，因为锁的优化往往会破坏代码的简洁性，从而导致其安全性受到影响。
+
+  > 代码过于复杂是线程安全性问题的关键因素之一。
+  {: .prompt-warning }
+
+```java
+/**
+ * 这个例子降低了锁的粒度，但是代码变得不再简洁，增加了理解成本
+ */
+public class CachedFactorizer implements Servlet {
+    @GuardedBy("this") private BigInteger lastNumber;
+    @GuardedBy("this") private BigInteger[] lastFactors;
+    @GuardedBy("this") private long hits;
+    @GuardedBy("this") private long cacheHits;
+    
+    public synchronized long getHits() {
+        return hits; 
+    }
+    
+    public synchronized double getCacheHitRatio() {
+    	return (double) cacheHits / (double) hits;
+    }
+    
+    public void service(ServletRequest req, ServletResponse resp) {
+    	BigInteger i = extractFromRequest(req);
+    	BigInteger[] factors = null; 
+        synchronized (this) {
+    		++hits;
+            if (i.equals(lastNumber)) {
+    			++cacheHits;
+    			factors = lastFactors.clone();
+    		}
+    	}
+    	if (factors == null) {
+    		factors = factor(i); 
+            synchronized (this) {
+    			lastNumber = i;
+    			lastFactors = factors.clone();
+    		}
+    	}
+        encodeIntoResponse(resp, factors);
+    }
+}
+```
+
+## Chapter 3 - Sharing Object
+
+本章讨论了以下问题：
+
+- 可见性
+- 发布和逃逸
+- 线程封闭
+- 不可变性
+- 安全发布
+
+---
+
+### 可见性
+
+`synchronized` 关键字的作用不仅在于它可以保证多个操作的原子性，还在于它可以保证共享变量的可见性。
+
+共享变量的可见性问题是指：线程在修改自身工作内存的共享变量之后，不会立刻将之刷新到共享内存，此时修改后的变量对于其他线程就是不可见的，当修改后的共享变量被刷新到共享内存时，它对于其他线程才首次变得 “可见”。
+
+```java
+public class NoVisibility {
+    private static boolean ready; 
+    private static int number;
+    
+    private static class ReaderThread extends Thread {
+        public void run() {
+            while (!ready)
+            	Thread.yield();
+            System.out.println(number);
+        }
+    }
+    
+    public static void main(String[] args) {
+        new ReaderThread().start();
+        // 这两个修改会保留在主线程的工作内存，对 ReaderThread 是不可见的，ReaderThread 看到的始终是旧的值
+        number = 42;
+        ready = true;
+        // synchronized 关键字修饰的代码块中的所有修改，在退出代码块时都会被刷新到共享内存，保证了可见性
+        synchronized (Main.class) {
+            number = 42;
+            ready = true;
+        }
+    }
+}
+```
+
+保证共享变量的可见性，是我们需要使用锁的另一个原因。
+
+Java 还提供了另一个用于保证可见性的工具：`volatile` 变量。
+
+但是 `volatile` 变量无法保证并发操作的有序性，是一种比较弱的同步机制。
+
+### 发布和逃逸
+
+发布是指将对象或对象的状态的访问权限公开（非私有）。逃逸是指本不应该被发布的对象被意外公开的情况。
+
+```java
+// 最明目张胆的发布方式是将对象存储在 pinlic static 引用中，任何对象和线程都可以访问这个对象
+public static Set<Secret> knownSecrets; 
+
+public void initialize() {
+	knownSecrets = new HashSet<Secret>();
+}
+
+---
+    
+// 本应该是私有的 states，通过 getStates() 被发布了，也就是说 states 发生了逃逸
+class UnsafeStates {
+	private String[] states = new String[] {"AK", "AL" ...};
+    public String[] getStates() { return states; }
+}; 
+
+---
+
+// 另一种比较隐蔽的逃逸方式，当 EventListener 这个内部类被发布时，ThisEscape 的 this 引用也会被隐式发布
+public class ThisEscape {
+    public ThisEscape(EventSource source) {
+        source.registerListener(new EventListener() {
+            public void onEvent(Event e) {
+                doSomething(e); // 这里隐含使用了 ThisEscape.this，此时 ThisEscape 尚未完全初始化，处于失效状态
+            }
+    	});
+    }
+    
+    private void doSomething(Event e) {
+        // 可能依赖尚未初始化的状态
+    }
+}
+
+// 修复方式是使用工厂方法，通过私有化构造方法，使得只有构造函数执行完毕的有效状态可以被暴露
+public class SafeListener {
+    private final EventListener listener; 
+    
+    private SafeListener() {
+    	listener = new EventListener() {
+            public void onEvent(Event e) {
+                doSomething(e);
+            }
+        };
+    }
+   
+    public static SafeListener newInstance(EventSource source) {
+    	SafeListener safe = new SafeListener();
+    	source.registerListener(safe.listener);
+        return safe;
+    }
+}
+```
+
+只要一个私有状态可以通过非私有引用或者方法访问，那么这个私有状态就发生了逃逸，实际上就是发布的。
+
+一旦状态发生了逃逸，那么不论外部线程是怎么访问这些逃逸状态的，都会增加发生并发问题的概率。
+
+### 线程封闭
+
+线程封闭是指将对象的访问权限限制在单个线程之内的技术。
+
+只要一个对象只被一个线程访问，那么这个对象即使没有实现同步机制，因为不存在竞争，所以也可以实现线程安全。
+
+线程封闭的一个特殊场景是堆栈封闭。就是指方法内部的局部变量，这些局部变量实际上存在于线程自身的虚拟机栈中。
+
+```java
+public int loadTheArk(Collection<Animal> candidates) {
+    SortedSet<Animal> animals; 
+    int numPairs = 0;
+    Animal candidate = null; 
+    
+    // animals 被封闭在栈内，不要让这个集合引用及其内部元素被发布，否则这个对象会逃逸出栈外
+    animals = new TreeSet<Animal>(new SpeciesGenderComparator()); 
+    animals.addAll(candidates);
+    
+    for (Animal a : animals) {
+        if (candidate == null || !candidate.isPotentialMate(a))
+        	candidate = a;
+        else {
+            ark.load(new AnimalPair(candidate, a)); ++numPairs;
+            candidate = null;
+        }
+	}
+    
+	return numPairs;
+}
+```
+
+Java 提供了 ThreadLocal 机制实现线程封闭。
+
+> ThreadLocal 的线程隔离特性很容易被滥用，尤其是将其作为创建 “隐藏” 方法参数的手段。与全局变量一样，线程局部变量可能会降低代码的可复用性，并在类之间引入隐藏的耦合关系，因此使用时应当格外谨慎。
+{: .prompt-warning }
+
+```java
+// 设置 ThreadLocal 变量时，会获取当前线程的 ThreadLocalMap，维护 ThreadLocal → Copied Value 的映射。
+private static ThreadLocal<Connection> connectionHolder
+    = new ThreadLocal<Connection>() {
+        public Connection initialValue() {
+        	return DriverManager.getConnection(DB_URL);
+        }
+	};
+
+public static Connection getConnection() {
+    return connectionHolder.get();
+}
+```
+
+### 不可变性
+
+不可变性是指对象一经创建，其状态在整个声明周期内都不可以被修改的性质。
+
+不可变对象总是线程安全的，因为它的状态无法被更改，自然就不涉及并发修改导致的一系列问题。
+
+满足以下条件的对象是不可变对象：
+
+- 它的状态一经创建便无法被修改
+- 它所有的引用都被声明为 `final`
+- 对象创建期间，所有状态都没发生逃逸
+
+可以利用不可变对象构建线程安全的类，比如使用不可变对象（即对象一旦创建，其状态就不能被修改）来持有这些变量。
+
+这种方式相比于加锁，会更加简洁。
+
+```java
+// 不可变对象 - 线程安全
+class ImmutableAccount {
+    // final确保不可变
+    private final int balance;  
+    private final String owner;
+    
+    public ImmutableAccount(int balance, String owner) {
+        this.balance = balance;
+        this.owner = owner;
+    }
+    
+    // 需要 "更新" 时，创建新对象
+    public ImmutableAccount update(int newBalance, String newOwner) {
+        return new ImmutableAccount(newBalance, newOwner);
+    }
+}
+
+// 使用示例
+public class Bank {
+    // 使用 volatile 保证可见性
+    private volatile ImmutableAccount account = new ImmutableAccount(1000, "Alice");
+    
+    public void updateAccount() {
+        // 创建新对象，而不是修改旧对象
+        ImmutableAccount newAccount = account.update(1500, "Alice");
+        account = newAccount;  // 原子性引用切换
+    }
+    
+    public void checkBalance() {
+        ImmutableAccount current = account;  // 获取当前引用
+        // 即使其他线程在更新，这里看到的状态也是一致的
+        System.out.println(current.getBalance() + " - " + current.getOwner());
+    }
+}
+```
+
+### 安全发布
+
+要安全地发布一个对象，必须同时让其他线程能够访问该对象的引用以及其状态。一个正确构建的对象可以通过以下方式安全地发布：
+
+- 从静态初始化块中初始化对象引用；
+- 将其引用存储到一个 `volatile` 字段或原子引用中；
+- 将对该对象的引用存储到一个正确构造的对象的 `final` 字段中；或者
+- 将对该对象的引用存储到一个由锁妥善保护的字段中。
+
+一个对象的发布要求取决于其可变性：
+
+- 不可变对象可以通过任何机制发布；
+- 不可变对象必须被确保安全地发布；
+- 可变对象必须进行安全发布，并且必须具备线程安全性，或者需要通过锁进行保护。
+
+---
+
+在并发程序中使用共享对象最有用的策略包括：
+
+- 使用线程封闭
+- 使用只读对象
+- 使用线程安全的对象
+- 使用锁保护共享对象的访问
+
+## Chapter 4 - Composing Objects
+
+本章讨论了以下问题：
+
+- 设计一个线程安全的类
+- 实例封闭
+- 委托式线程安全
+- 为已有的线程安全类添加功能
+- 文档化同步策略
+
+---
+
+### 设计一个线程安全的类
+
+线程安全类的设计过程应该考虑两个要点：
+
+- 识别对象状态中的变量和约束它们的不变量
+- 在合适的类中制订策略来管理对象状态的并发访问
+
+对象的状态由其内部声明的字段组成，如果持有另一个对象的引用，这么被持有对象的状态也是当前对象状态的一部分。
+
+对象的状态是否合法，是由不变量判断的，换言之，状态的合法空间是由不变量确定的。
+
+对象状态之间的流转，是通过方法的调用实现的，方法的调用是否合法，是由该方法的后置条件判断的，换言之，方法调用后的对象的合法状态空间是由该方法的后置条件确定的。
+
+部分方法有前置条件，比如集合类的 `get()` 方法，前置条件要求集合中有元素，在单线程环境下，违反前置条件的调用会立刻失败，但是多线程环境下，有其他线程会修改集合的状态，有可能会等到前置条件被满足，Java 内部提供了 `wait/notify` 机制、`Condition`、`Semaphore` 等工具来处理这种场景。
+
+在设计线程安全的类时，我们可以考虑尽量把一些字段定义为 `final`，并且尽量限制变量的取值，这样可以削减对象的合法空间，对象能流转的合法空间越小，出现并发问题的概率就越小。
+
+> 如果一个对象及其引用的其他对象全是只读字段，怎么它的合法状态空间其实只有一个状态，就是它被创建出来时的状态，对于这种对象，只要保证它是被安全发布的，那么即使不使用任何同步机制，也可以保证它是线程安全的。
+{: .prompt-tip }
+
+```java
+/**
+ * 这个对象的状态包括 {stateA, stateB, {stateC}}
+ * 其中 stateA 的合法空间为 [Integer.MIN_VALUE, Integer.MAX_VALUE]
+ * stateB 的合法空间为 [Long.MIN_VALUE, Long.MAX_VALUE]
+ * 这个对象的合法空间为 stateA 的合法空间 x stateB 的合法空间 x stateC 的合法空间
+ */
+class ThisObject {
+    private int stateA;
+    private long stateB;
+    private OtherObject o;
+    
+    /**
+     * 这个方法的后置条件是：新的 state 等于旧的 state + 1
+     * 如果当前 state = 17，那么这个方法的后置条件确定的 stateA 的合法空间是 {18}
+     */
+    public void incrementA() {
+        stateA++;
+    }
+}
+
+/**
+ * 这个对象的状态包括 {stateC}
+ */
+class OtherObject {
+    private int stateC;
+}
+```
+
+制订并发访问策略的职责归属哪个类也需要明确区分。
+
+对于上述例子的 `stateC` 的并发访问，访问策略的制订的责任应该是 `ThisObject` 来承担还是由 `OtherObject` 来承担，这取决于 `OtherObject` 的引用会不会被其他对象持有。
+
+如果 `OtherObject` 的引用会被其他对象持有，那么认为 `OtherObject` 对象的所有权是被共享的，这种情况下，应该由 `OtherObject` 自己实现对 `stateC` 的并发访问策略，因为 `ThisObject` 没办法控制持有 `OtherObject` 对象所有权的其他对象的访问策略。
+
+如果可以确定 `OtherObject` 的引用会不被其他对象持有，那么认为 `OtherObject` 对象的所有权是独占的，这种情况下，应该由 `ThisObject` 实现对 `stateC` 的并发访问策略。
+
+不过根据防御性编程的思想，我们应该总是假定情况是前者，也就是我们总是应该在 `OtherObject` 内部自己实现并发访问策略。
+
+### 实例封闭
+
+实例封闭是：将一个非线程安全的对象封装在另一个对象内部，然后通过封装对象的同步机制来保证线程安全。
+
+核心思想是：不需要所有组件都是线程安全的，只要能控制所有对组件的访问路径，并通过适当的同步来管理这些访问，就可以构建出线程安全的类。
+
+```java
+
+public class PersonSet {
+    // HashSet本身不是线程安全的
+    private final Set<Person> mySet = new HashSet<Person>(); 
+    
+    // 用 PersonSet 对象自身作为锁，通过同步方法保证线程安全
+    public synchronized void addPerson(Person p) {
+        mySet.add(p);
+    }
+    
+    public synchronized boolean containsPerson(Person p) {
+        return mySet.contains(p);
+    }
+}
+```
+
+不过，使用私有锁是更加推崇的方式，这种方式提供了更强的安全性：
+
+- 客户端代码无法获取私有锁
+- 防止外部代码错误地参与同步策略
+- 使用公有锁需要检查整个程序，而使用私有锁只需检查单个类
+
+```java
+public class PrivateLock {
+    private final Object myLock = new Object(); // 私有锁
+    @GuardedBy("myLock") Widget widget;
+    
+    void someMethod() {
+        synchronized(myLock) { // 使用私有锁而不是this
+            // 访问或修改widget状态
+        }
+    }
+}
+```
+
+### 委托式线程安全
+
+委托式线程安全是指：讲线程安全的职责简单委托给了内部已有的线程安全的类。
+
+```java
+public class CountingFactorizer {
+    // 内部已有的线程安全的组件
+    private final AtomicLong count = new AtomicLong(0);
+    
+    public void service() {
+        // 无状态的操作
+        count.incrementAndGet();
+    }
+    
+    public long getCount() {
+        return count.get();
+    }
+}
+```
+
+并不是说，只要类由多个线程安全的组件组成，整个类就自动是线程安全的。
+
+```java
+public class Range {
+    private final AtomicInteger lower = new AtomicInteger(0);
+    private final AtomicInteger upper = new AtomicInteger(0);
+    
+    // 问题：虽然每个组件都线程安全，但组合操作不是原子的
+    public void setLower(int value) {
+        if (value > upper.get()) {  // 第一步 - 检查
+            throw new IllegalArgumentException();
+        }
+        // 此处可能由于其他线程的访问，导致 value > upper.get()，破坏了先决条件
+        lower.set(value);  // 第二部 - 设置
+    }
+    
+    public void setUpper(int value) {
+        if (value < lower.get()) {
+            throw new IllegalArgumentException();
+        }
+        upper.set(value);
+    }
+}
+```
+
+如果多个变量之间没有跨变量的不变量约束，那么这个类也是线程安全的。
+
+```java
+public class VisualComponent {
+    // 两个独立的状态变量
+    private final List<KeyListener> keyListeners = new CopyOnWriteArrayList<>();
+    private final List<MouseListener> mouseListeners = new CopyOnWriteArrayList<>();
+    
+    public void addKeyListener(KeyListener listener) {
+        keyListeners.add(listener); // 委托给线程安全的 List
+    }
+    
+    public void addMouseListener(MouseListener listener) {
+        mouseListeners.add(listener); // 委托给线程安全的 List
+    }
+    
+    public void removeKeyListener(KeyListener listener) {
+        keyListeners.remove(listener);
+    }
+    
+    public void removeMouseListener(MouseListener listener) {
+        mouseListeners.remove(listener);
+    }
+}
+```
+
+可以委托线程安全的情况：
+
+- 状态变量相互独立
+- 没有跨变量的约束条件
+- 没有复合操作
+- 内部状态没有被意外发布
+
+需要额外同步的情况：
+
+- 状态变量之间存在约束（如 `lower <= upper`）
+- 有复合操作（检查然后行动）
+- 操作涉及多个状态变量
+
+### 为已有的线程安全类添加功能
+
+主要有两种方式：
+
+- 直接在原始类中添加新的方法（推荐）。但是只有在有原始类的源码的情况下才可以。
+- 继承原有的类，在子类中添加新的方法。只推荐在没有原始类源码的情况下使用。

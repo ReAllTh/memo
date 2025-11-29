@@ -1,7 +1,7 @@
 ---
 layout: post
 title:  《Java Concurrency In Practice》阅读笔记（更新中...）
-date:   2025-10-01 22:57:49 +0000
+date:   2025-11-01 22:57:49 +0000
 tags: [Java, 并发编程, 阅读笔记]
 ---
 

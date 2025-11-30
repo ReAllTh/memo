@@ -5,13 +5,21 @@ date:   2025-11-01 22:57:49 +0000
 tags: [Java, 并发编程, 阅读笔记]
 ---
 
+**目前的观感**
+
+东西是好的，整体叙事结构也合理，但是每章内部的叙事逻辑有点混乱，加上形式化描述的使用，读起来不好读，心智负担比较大。
+
+需要通读全书之后，仔细梳理一番。
+
+---
+
 这本书的整体结构如下：
 
 - Chapter 1：介绍并发解决什么问题，又带来什么问题。
 - Part I：介绍并发和线程安全的理论，讲解如何用并发库构建线程安全的类。
   - Chapter 2&3：整本书的理论基石，探讨关于如何避免并发问题、如何构建线程安全的类以及如何确认线程安全的理论。
   - Chapter 4：探讨如何用线程安全的类构建更大的线程安全的类。
-  - Chapter 5；探讨并发库提供的并发工具，包括线程安全的集合和同步器。
+  - Chapter 5：探讨并发库提供的并发工具，包括线程安全的集合和同步器。
 - Part II：讲解如何利用线程来提高并发应用的吞吐量和响应速度。
   - Chapter 6：探讨如何识别可并行化的任务并使用 task-execution 框架执行它。
   - Chapter 7：探讨如何让任务和线程在正常结束前提前终止，程序处理取消与关闭的方式，往往是区分真正稳健的并发应用程序与仅能勉强运行的并发程序的关键要素之一。
@@ -737,3 +745,93 @@ public class VisualComponent {
 
 - 直接在原始类中添加新的方法（推荐）。但是只有在有原始类的源码的情况下才可以。
 - 继承原有的类，在子类中添加新的方法。只推荐在没有原始类源码的情况下使用。
+
+还有一种场景，两种方式都用不了。就是既没有源码，也没法继承的情况。比如要给 `Collections.synchronizedList` 包装的集合类添加原子操作时，对于这样的集合，可以使用一个额外的辅助类帮助实现线程安全，这也叫客户端锁定。
+
+```java
+/**
+ * 这种方式并不能保证 list 的线程安全
+ * putIfAbsent() 的锁对象是 ListHelper.this，而 list 的锁对象是它自身
+ */
+public class ListHelper<E> {
+    public List<E> list = Collections.synchronizedList(new ArrayList<E>());
+    ...
+    public synchronized boolean putIfAbsent(E x) {
+        boolean absent = !list.contains(x);
+        if (absent)
+            list.add(x); // 此时 list.contains(x) 可能已经是 true 了
+        return absent;
+    }
+}
+
+/**
+ * 修复方式，让额外添加的操作使用同一把锁
+ */
+public class ListHelper<E> {
+    public List<E> list = Collections.synchronizedList(new ArrayList<E>());
+    ... 
+    public boolean putIfAbsent(E x) {
+        synchronized (list) {
+            boolean absent = !list.contains(x); 
+            if (absent)
+            	list.add(x); 
+            return absent;
+        }
+    }
+}
+
+/**
+ * 这才是推荐的方式，监视器模式
+ * 这种方式不关心 list 是否本身线程安全
+ * 通过安全发布和委托式线程安全来保证新类的线程安全性
+ */
+public class ImprovedList<T> implements List<T> {
+    private final List<T> list;
+    
+    public ImprovedList(List<T> list) { this.list = list; }
+    
+    public synchronized boolean putIfAbsent(T x) {
+        boolean contains = list.contains(x); 
+        if (contains)
+        	list.add(x); 
+        return !contains;
+    }
+    
+    public synchronized void clear() { list.clear(); } // ... similarly delegate other List methods
+}
+```
+
+### 文档化同步策略
+
+制定同步策略需要做出一系列决策：
+
+- 哪些变量要设为 `volatile`
+
+- 哪些变量要通过锁进行保护
+
+- 哪些锁要保护哪些变量
+
+- 哪些变量要设为 `final` 或封闭在单个线程内
+
+- 哪些操作必须是原子性的
+
+  ......
+
+为了方便未来的维护人员，这些决策应当文档化，其中，会影响类的公开可观察的锁定行为，应当作为类规范的一部分文档化。.
+
+退一步讲，至少要记录该类所做出的线程安全保证：
+
+- 它是否具有线程安全性？
+- 它是否在持有锁的情况下进行回调操作？
+- 是否存在任何特定的锁会影响其行为？
+
+不要迫使客户端或未来的维护人员做危险的猜测：
+
+- 如果不想承诺支持客户端锁定，那也没关系，但要明确说明。
+- 如果想让客户端能够基于类创建新的原子操作，那么需要记录他们应该获取哪些锁才能安全地进行操作。
+- 如果使用锁来保护状态，为未来的维护人员记录这一点是很有必要的。
+- 如果使用更微妙的方法来保持线程安全性，也要记录下来，因为这对未来的维护人员来说可能并不明显。
+
+## Chapter 5 - Building Blocks
+
+TODO

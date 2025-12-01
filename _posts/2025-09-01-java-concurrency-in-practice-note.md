@@ -7,9 +7,7 @@ tags: [Java, 并发编程, 阅读笔记]
 
 **目前的观感**
 
-东西是好的，整体叙事结构也合理，但是每章内部的叙事逻辑有点混乱，加上形式化描述的使用，读起来不好读，心智负担比较大。
-
-需要通读全书之后，仔细梳理一番。
+东西是好的，整体叙事结构也合理，但是每章内部的叙事逻辑有点混乱，加上形式化描述的使用，读起来不好读，心智负担比较大。需要通读全书之后，仔细梳理一番。
 
 ---
 
@@ -834,4 +832,104 @@ public class ImprovedList<T> implements List<T> {
 
 ## Chapter 5 - Building Blocks
 
-TODO
+本章讨论了以下问题：
+
+- 同步集合
+- 并发集合
+- 阻塞队列和生产者消费者模式
+- 阻塞和可中断方法
+- 同步器
+- 构建一个高效、可伸缩的结果缓存
+
+---
+
+### 同步集合
+
+同步集合是指 `vector`、`hashtable` 和所有被 `Collections.synchronizedXxx` 包装的集合。
+
+这些集合可以保证自己提供的每一个操作都是原子的，但是不保证复合操作的原子性。
+
+典型的复合操作就是先检查后行动的模式。
+
+```java
+// 这两个操作都是先检查后行动的模式，行动的时候，检查条件可能已经发生变化
+public static Object getLast(Vector list) {
+    int lastIndex = list.size() - 1;
+    return list.get(lastIndex);
+}
+
+public static void deleteLast(Vector list) {
+    int lastIndex = list.size() - 1;
+    list.remove(lastIndex);
+}
+
+// 需要加锁来保证复合操作的原子性，同步集合用于客户端锁定的锁对象一般就是集合对象自身
+public static Object getLast(Vector list) {
+    synchronized (list) {
+    	int lastIndex = list.size() - 1; 
+        return list.get(lastIndex);
+    }
+}
+
+public static void deleteLast(Vector list) {
+    synchronized (list) {
+    	int lastIndex = list.size() - 1; 
+        list.remove(lastIndex);
+    }
+}
+```
+
+对于集合来说，使用迭代器遍历也是一个复合操作。
+
+迭代器遍历集合时，如果集合内容发生了变动，会抛出 `ConcurrentModificationException`，但出于性能考虑，检查并发修改的操作并没有被同步。所以抛异常只是一个尽力而为的机制，它预示着集合可能会出现并发问题。
+
+```java
+List<Widget> widgetList = Collections.synchronizedList(new ArrayList<Widget>());
+... 
+// May throw ConcurrentModificationException
+for (Widget w : widgetList) // 这行代码会在编译时被替换为等价的迭代器语法
+	doSomething(w);
+```
+
+为了保证遍历时不发生并发修改，需要在遍历之前加锁。此时需要格外谨慎，如果集合较大或者为每个元素执行的任务耗时较长，其他线程可能会等待很长时间。这会增加死锁的风险。即使不存在饥饿或死锁风险，锁保持的时间越长，也越容易出现锁竞争，导致应用的吞吐量和 CPU 利用率受到影响。
+
+另外还需要注意有些操作隐含地使用了迭代器。
+
+```java
+public class HiddenIterator {
+    @GuardedBy("this")
+    private final Set<Integer> set = new HashSet<Integer>(); 
+    
+    public synchronized void add(Integer i) { set.add(i); } 
+    
+    public synchronized void remove(Integer i) { set.remove(i); }
+    
+    public void addTenThings() {
+        Random r = new Random(); 
+        for (int i = 0; i < 10; i++)
+        	add(r.nextInt());
+        // 这里会隐式调用 set.toString()，背后又会隐式使用迭代器迭代整个集合，这里需要提前加锁
+        System.out.println("DEBUG: added ten elements to " + set); 
+    }
+}
+```
+
+### 并发集合
+
+并发集合是指 Java 5.0 开始加入的 `ConcurrentHashMap`、`CopyOnWriteArrayList`、`ConcurrentLinkedQueue` 等。
+
+不像同步集合将所有访问串行化，并发集合可以允许多个线程并发访问的同时保证线程安全，相比于同步集合，有更高的性能。
+
+`ConcurrentHashMap` 通过锁的条带化技术使多个线程可以并发访问集合，且迭代器不会抛 `ConcurrentModificationException`，它的迭代器是弱一致性而非像同步集合提供的迭代器一样立即抛出异常。弱一致性迭代器能够容忍并发修改，会按照迭代器构建时元素的原有状态进行遍历，并且可能（但不保证一定会）反映出在迭代器构建之后对集合所做的修改。
+
+高并发的代价是，像 `size` 和 `isEmpty` 这类作用在整个集合上的操作就不能期望它们的准确性了，因为这些操作的结果每时每刻都在变化，它们实际上只是估计值，不能反应集合的当前状态。
+
+`CopyOnWriteArrayList` 则通过 Copy-On-Write 技术实现并发访问。集合在每次发生修改的时候都会复制一个副本，在副本上修改，然后变更引用。这样保证了写线程修改集合的时候，读线程仍然可以不加任何同步地访问原有集合。这种技术在读取远远多于写入的场景可以提供极高的性能。
+
+它的迭代器也不会抛 `ConcurrentModificationException`，并且会准确地返回迭代创建时的元素状态，无论之后是否有任何修改。迭代器保留了迭代开始时所使用的底层数组的引用，该引用永远不会改变，因此这些迭代器只需短暂地进行同步操作，以确保数组内容的可见性即可。这样一来，多个线程可以对集合进行迭代，而不会相互干扰，也不会受到想要修改集合的其他线程的影响。
+
+`LinkedBlockingQueue`、`ArrayBlockingQueue` 和 `PriorityBlockingQueue` 是生产者消费者模式的实现。生产者在队列满时阻塞，消费者在队列空时阻塞。前两者提供 FIFO 的队列实现，而后者提供基于优先级出队的队列实现。
+
+使用这些队列需要时刻牢记，消费者并不总是一直在线的，所以尽量不要使用没有空间限制的队列，这会导致内存资源耗尽。而使用带空间限制的队列时，也需要考虑队列堆积时该怎么处理，主要有几种方式：增加消费者、减少生产者、持久化溢出的队列任务等。
+
+还有一个特殊的队列：`SynchronousQueue`。它不提供用于存储任务的容量，而是在生产者生产出任务时直接将任务交到等待的消费者手上，这种队列可以最大程度地减少任务被消费的延迟，但是仅仅适合在消费者足够多，多到几乎任何时刻都存在等待的消费者时，这个队列才能物尽其用。

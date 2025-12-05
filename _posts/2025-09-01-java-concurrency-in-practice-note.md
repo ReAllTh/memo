@@ -976,5 +976,163 @@ Java 的阻塞方法会抛出 `InterruptedException`，这意味着这个方法�
 - 直接抛出或者简单记录日志后重新抛出，把处理中断的职责交给上层
 - 如果没法再往上抛出，那么执行执行一些逻辑（一般是取消任务或资源清理等）后，重新置中断标志位，恢复中断
 
-对于恢复中断的方案，之所以要重新恢复中断是因为：一方面 `InterruptedException` 被捕获后，当前线程的中断标志会被隐式清除，另一方面，不恢复中断会导致上层无法发现当前线程被中断过，就不会执行一些任务取消或者优雅停机的逻辑，从而导致资源泄露或者无法停机的问题发生。
+对于恢复中断的方案，之所以要重新恢复中断是因为 `InterruptedException` 被捕获后，当前线程的中断标志会被隐式清除，不恢复中断会导致上层无法发现当前线程被中断过，就不会执行一些任务取消或者优雅停机的逻辑，从而导致资源泄露或者无法停机的问题发生。
 
+### 同步器
+
+同步器是指能基于自身状态协调和控制多个线程的特殊对象。种类包括：
+
+- 阻塞队列：队列空时 `take` 被阻塞，队列满时 `put` 被阻塞，它的状态就是指队列空或者满的二元状态。
+
+  ```java
+  /**
+   * 阻塞队列的典型使用
+   */
+  class BlockingQueueExample {
+      private final int PRODUCER_CNT = 2;
+      private final int CONSUMER_CNT = 10;
+      private final int CAPACITY = 10;
+      private final BlockingQueue<Object> blockingQueue = new ArrayBlockingQueue<>(CAPACITY);
+  
+      public void useCase() {
+          Runnable producerTask = () -> {
+              while (true) {
+                  try {
+                      blockingQueue.put(new Object()); // 在队列满时会阻塞
+                  } catch (InterruptedException e) { // 可以被其他线程中断以提前结束阻塞
+                      handleInterruptedException();
+                  }
+              }
+          };
+  
+          Runnable consumerTask = () -> {
+              while (true) {
+                  try {
+                      Object object = blockingQueue.take();// 在队列空时会阻塞
+                      // ...
+                  } catch (InterruptedException e) { // 可以被其他线程中断以提前结束阻塞
+                      handleInterruptedException();
+                  }
+              }
+          };
+  
+          for (int i = 0; i < PRODUCER_CNT; i++)
+              new Thread(producerTask).start();
+          for (int i = 0; i < CONSUMER_CNT; i++)
+              new Thread(consumerTask).start();
+      }
+  
+      private void handleInterruptedException() {
+          System.out.println("something wrong");
+          Thread.currentThread().interrupt(); // 如果不重新抛出异常，那么需要恢复中断状态，让中断向上传播
+      }
+  }
+  ```
+
+- 信号量：资源耗尽时 `acquire` 被阻塞，它的状态就是当前可用的资源数量。
+
+  ```java
+  /**
+   * Semaphore 的典型使用
+   */
+  class SemaphoreExample {
+      private final int RESOURCE_QUOTA = 10;
+      // 用 1 初始化时，Semaphore 可以当不可重入的互斥锁用
+      private final Semaphore semaphore = new Semaphore(RESOURCE_QUOTA); 
+  
+      public void useCase() {
+          Runnable taskWithResource = () -> {
+              try {
+                  semaphore.acquire(); // 没有足够的资源时，会被阻塞
+                  // ...
+              } catch (InterruptedException e) {
+                  handleInterruptedException();
+              } finally {
+                  semaphore.release(); // 资源使用完后释放
+              }
+          };
+  
+          for (int i = 0; i < 12; i++)
+              new Thread(taskWithResource).start();
+      }
+  
+      private void handleInterruptedException() {
+          System.out.println("something wrong");
+          Thread.currentThread().interrupt(); // 如果不重新抛出异常，那么需要恢复中断状态，让中断向上传播
+      }
+  }
+  ```
+
+- 闭锁：到达解锁点的线程数未达到规定数量时，调用 `await` 的线程会被阻塞 ，它的状态就是解锁点要求达到的线程数。
+
+  ```java
+  /**
+   * Latch 的典型使用
+   */
+  class LatchExample {
+      private final int LATCH_COUNT = 10;
+      private final CountDownLatch countDownLatch = new CountDownLatch(LATCH_COUNT);
+  
+      public void useCase() {
+          Runnable task = () -> {
+              // ...
+              countDownLatch.countDown(); // 解锁点
+          };
+  
+          for (int i = 0; i < LATCH_COUNT; i++)
+              new Thread(task).start();
+  
+          try {
+              countDownLatch.await(); // 达到解锁点的线程数没有达到 LATCH_COUNT 之前，当前线程会被阻塞
+          } catch (InterruptedException e) {
+              handleInterruptedException();
+          }
+      }
+  
+      private void handleInterruptedException() {
+          System.out.println("something wrong");
+          Thread.currentThread().interrupt(); // 如果不重新抛出异常，那么需要恢复中断状态，让中断向上传播
+      }
+  }
+  ```
+
+- 屏障：到达屏障点的线程数未达到规定数量时，已经到达屏障点的线程会被阻塞，它的状态就是屏障点要求达到的线程数。
+
+  ```java
+  /**
+   * Barrier 的典型使用
+   * reset() 需要谨慎使用，它会释放当前所有被阻塞的线程
+   */
+  class BarrierExample {
+      private final int BARRIER_CNT = 10;
+      private final Runnable barrierAction = () -> System.out.println("Good Job!");
+      private final CyclicBarrier cyclicBarrier = new CyclicBarrier(BARRIER_CNT, barrierAction);
+  
+      public void useCase() {
+          Runnable preAction = () -> {
+              while (true) {
+                  try {
+                      // ...
+                      int awaitRank = cyclicBarrier.await();
+                      System.out.println("I reached await point at: " + awaitRank);
+                  } catch (InterruptedException e) {
+                      handleInterruptedException();
+                  } catch (BrokenBarrierException e) { // 屏障点的任意一个线程被中断或者等待超时，都会导致其他线程抛出 BrokenBarrierException
+                      System.out.println("mission failed: barrier has been broken.");
+                      throw new RuntimeException("Broken Barrier", e);
+                  }
+              }
+          };
+  
+          for (int i = 0; i < BARRIER_CNT; i++)
+              new Thread(preAction).start();
+      }
+  
+      private void handleInterruptedException() {
+          System.out.println("something wrong");
+          Thread.currentThread().interrupt(); // 如果不重新抛出异常，那么需要恢复中断状态，让中断向上传播
+      }
+  }
+  ```
+
+换言之，同步器是指具有这样的结构的对象：它们会封装一些参数状态，并根据这些参数决定到达同步器的线程是允许放行还是强制等待，并提供了用于操作这些状态的方法。

@@ -1133,6 +1133,73 @@ Java 的阻塞方法会抛出 `InterruptedException`，这意味着这个方法�
           Thread.currentThread().interrupt(); // 如果不重新抛出异常，那么需要恢复中断状态，让中断向上传播
       }
   }
+  
+  /**
+   * Exchanger 的典型使用
+   * 它是屏障的一种特殊形式，一般用于双方安全交换数据
+   */
+  class ExchangerExample {
+      private final Exchanger<Object> exchanger = new Exchanger<>();
+  
+      public void useCase() {
+          Runnable taskA = () -> {
+              Object objectA = new Object();
+              Object objectB = null;
+              try {
+                  objectB = exchanger.exchange(objectA); // 把 objectA 安全发布给另一个线程的同时安全拿到 objectB
+              } catch (InterruptedException e) {
+                  handleInterruptedException();
+              }
+              // do something with object B
+          };
+  
+          Runnable taskB = () -> {
+              Object objectB = new Object();
+              Object objectA = null;
+              try {
+                  objectA = exchanger.exchange(objectA); // 把 objectB 安全发布给另一个线程的同时安全拿到 objectA
+              } catch (InterruptedException e) {
+                  handleInterruptedException();
+              }
+              // do something with object A
+          };
+  
+          new Thread(taskA).start();
+          new Thread(taskB).start();
+  
+      }
+  
+      private void handleInterruptedException() {
+          System.out.println("something wrong");
+          Thread.currentThread().interrupt(); // 如果不重新抛出异常，那么需要恢复中断状态，让中断向上传播
+      }
+  }
   ```
 
 换言之，同步器是指具有这样的结构的对象：它们会封装一些参数状态，并根据这些参数决定到达同步器的线程是允许放行还是强制等待，并提供了用于操作这些状态的方法。
+
+### 构建一个高效、可伸缩的结果缓存
+
+见原书。原书在此处循序渐进地构建了一个简单的计算结果缓存。只解决了并发问题，其他类似于过期问题、驱逐问题没有涉及。
+
+## Chapter 6 - Task Execution
+
+本章讨论了以下问题：
+
+- 在线程中执行任务
+- Executor 框架
+- 发现可以利用的并行性
+
+### 在线程中执行任务
+
+虽然多线程可以将子任务并行化以提高响应速度和吞吐量，但这不意味着线程数越多越好。
+
+线程数越多，耗费的系统资源越多，无限制地创建线程最终会导致系统资源耗尽，尤其是内存资源。
+
+另外，线程越多，数据竞争的可能性越大，花费在线程创建销毁和上下文切换的时间也会越多。
+
+所以，在当前数量的线程可以充分利用 CPU 的情况下，增加更多的线程数是有害的。
+
+### Executor 框架
+
+TODO

@@ -1261,4 +1261,149 @@ public interface ExecutorService extends Executor {
 
 ### 发现可以利用的并行性
 
-TODO
+基本的思路是，把 IO 密集型任务和 CPU 密集型任务拆分开来，将二者并行化。再尝试将二者进一步地划分为更小的子任务。
+
+然后把划分好的子任务包装成 `Runnable` 或者 `Callable`，交给线程池执行，搭配 `Future` 获取任务执行结果。
+
+> Future 代表了任务的生命周期，并提供了用于测试任务是否已完成或被取消、获取其结果以及取消任务的方法。Future 的定义中隐含着任务的生命周期只能向前推进，而不能向后倒退。一旦任务完成，它就会永远保持该状态。
+{: .prompt-info }
+
+搭配 `CompletionService` 可以将任务的提交和获取解耦，减少编程复杂度。
+
+`CompletionService` 的实现原理很简单，它会把新任务包装成 `FutureTask` 的子类 —— `QueueingFuture`，这个类重写了 `FutureTask` 的 `done` 方法，把完成的任务放在内部的阻塞队列中，这个方法会在任务完成后自动调用。
+
+```java
+/**
+ * CompletionService 的典型使用
+ */
+public class Renderer {
+    private final ExecutorService executor;
+    
+    Renderer(ExecutorService executor) { 
+        this.executor = executor; 
+    }
+    
+    void renderPage(CharSequence source) {
+        final List<ImageInfo> info = scanForImageInfo(source);
+        CompletionService<ImageData> completionService = new ExecutorCompletionService<ImageData>(executor); 
+        for (final ImageInfo imageInfo : info)
+        	completionService.submit(new Callable<ImageData>() {
+    			public ImageData call() {
+        			return imageInfo.downloadImage();
+    			}
+    		});
+        
+    	renderText(source); 
+        
+        try {
+            for (int t = 0, n = info.size(); t < n; t++) {
+    			Future<ImageData> f = completionService.take(); 
+            	ImageData imageData = f.get();
+    			renderImage(imageData);
+            }
+        } catch (InterruptedException e) {
+    		Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+    		throw launderThrowable(e.getCause());
+        }
+    }
+}
+```
+
+为了避免使用 `get` 获取任务结果时被长时间阻塞，最好给每个任务设置一个超时时间，或者直接使用带超时时间的 `get`。
+
+## Chapter 7 - Cancellation and Shutdown
+
+本章讨论了以下问题：
+
+- 取消任务
+- 停止一个基于线程的服务
+- 处理异常的线程终止
+- JVM 关闭
+
+### 取消任务
+
+想在任务执行完成之前提前取消任务的场景一般有：
+
+- 用户主动发起取消请求
+- 任务执行时间超出限制
+- Race 模式，也叫最快返回策略，提交多个任务，只取第一个完成的任务，其他任务需要被取消
+- 一个线程发现影响整个系统的无法恢复的错误时，可能需要取消所有其他正在执行的任务
+- 应用停止运行时，需要优雅地取消所有正在执行的任务，防止出现状态不一致
+
+取消任务的朴素想法是，维护一个 Cancel Flag，任务执行期间不断轮询这个 Flag，如果发现 Flag 被设置，那么就终止任务。
+
+```java
+public class PrimeGenerator implements Runnable {
+    private final List<BigInteger> primes = new ArrayList<BigInteger>();
+    // 使用 volatile 保证内存可见性，这个 flag 被设置为 true 时，取消当前线程的执行
+    private volatile boolean cancelled;
+    
+    public void run() {
+        BigInteger p = BigInteger.ONE; 
+        while (!cancelled ) {
+            p = p.nextProbablePrime(); 
+            synchronized (this) {
+                primes.add(p);
+            }
+        }
+    }
+    
+    public void cancel() { 
+        cancelled = true; 
+    }
+    
+    public synchronized List<BigInteger> get() {
+    	return new ArrayList<BigInteger>(primes);
+    }
+}
+```
+
+这种方式最大的缺点在于如果执行的任务被长时间阻塞，那么即使 Flag 被设置，线程也没有机会去检查，导致任务长时间无法被取消。
+
+最严重的情况下，如果被阻塞队列的 `take` 方法阻塞，那么这个线程永远无法停止执行。
+
+Java 没有提供主动提前终止任务的方法，而是提供了一种交互式的终止方式，让一个线程中断另一个线程，表达希望另一个线程终止的意图，然后另一个线程中捕获 `InterruptedException` 响应中断，执行任务取消逻辑。这是在 Java 中取消任务的最佳实践。
+
+> 在 API 或语言规范中，并没有规定中断与任何特定的取消语义之间存在关联，但在实际应用中，如果将中断用于除取消之外的其他用途，那么这种做法会非常脆弱，而且在大型应用程序中也难以维持。
+{: .prompt-warning }
+
+```java
+public class Thread {
+	public void interrupt() { ... } 
+    public boolean isInterrupted() { ... } 
+    // 检查当前线程的中断状态，是主动清除当前线程中断标志的唯一手段，需要谨慎使用
+    // 另一种被动的手段是捕获 InterruptedException
+    // 如果你调用了这个方法，那你一定要做点什么，然后恢复中断或者重新抛出中断，不能直接把中断给吞掉
+    // 直接吞掉会导致调用栈的上层对象出现异常行为
+    // 如果你执行的任务，没有阻塞方法，那也可以使用这个方式轮询中断标志
+    public static boolean interrupted() { ... }
+    ...
+}
+
+/**
+ * 中断示例
+ */
+class PrimeProducer extends Thread {
+    private final BlockingQueue<BigInteger> queue;
+    
+    PrimeProducer(BlockingQueue<BigInteger> queue) {
+    	this.queue = queue;
+    }
+    
+    public void run() {
+        try { 
+            BigInteger p = BigInteger.ONE;
+            // 这里的轮询其实没啥必要，因为里面的 put 是阻塞方法，会响应中断
+            // 少数场景下，可能会使用这种方式获得一点响应性的提升（因为在阻塞前检查了标志位）
+            while (!Thread.currentThread().isInterrupted())
+                queue.put(p = p.nextProbablePrime());
+        } catch (InterruptedException consumed) {
+        	/* 清理现场 */
+            Thread.currentThread().interrupt(); // 恢复中断标志位
+        } 
+    }
+    public void cancel() { interrupt(); }
+}
+```
+

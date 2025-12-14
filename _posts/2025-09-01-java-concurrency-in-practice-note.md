@@ -1451,4 +1451,95 @@ final void runWorker(Worker w) {
 
 在充分理解任务的取消策略和线程的中断策略的基础上， 应该有这样的认识：任务不知道自己会被执行在哪个线程上，更不知道这个线程又是由哪个线程池管理的，所以任务的取消策略不应该对线程的中断策略做出任何假设，也就是说，在定义取消策略的时候，不应该假设这个线程在响应中断之后就一定会终止或者一定会复用，更不应该写出依赖这些假设的代码；同样地，线程的中断策略也不应该对任务的取消策略做出任何假设。
 
+```java
+/**
+ * 这是一个反例，timedRun 企图利用 ScheduledExecutorService 给线程正在执行的任务设置超时时间
+ * 但是问题在于 timedRun 可以被任何线程执行，这意味着 timedRun 无法知道它要中断的线程有怎么样的中断策略
+ * 它无法知道它设置的定时任务给 taskThread 发出中断后，taskThread 会做什么动作
+ * 可能对于 timedRun 来说，给 taskThread 发中断的本意在于超时取消
+ * 但是对于 taskThread 的拥有者来说，给它管理的线程发中断可能就意味着停止整个服务
+ */
+private static final ScheduledExecutorService cancelExec = ...; 
+
+public static void timedRun(Runnable r, long timeout, TimeUnit unit) { 
+    final Thread taskThread = Thread.currentThread(); 
+    cancelExec.schedule(new Runnable() {
+    	public void run() { taskThread.interrupt(); } 
+    }, timeout, unit);
+    r.run();
+}
+
+/**
+ * 稍微好一些的解决方案
+ * 1. 不用不知道中断策略的 Thread.currentThread() 做 taskThread，而是 new 一个新的线程，自己作为新线程的所有者
+ * 2. 保存任务执行过程中发生的异常，便于后续重新抛出
+ */
+public static void timedRun(final Runnable r, long timeout, TimeUnit unit) throws InterruptedException { 		class RethrowableTask implements Runnable {
+		private volatile Throwable t;
+		public void run() {
+			try { r.run(); }
+			catch (Throwable t) { this.t = t; } 
+        }
+    	void rethrow() {
+			if (t != null)
+				throw launderThrowable(t);
+		}
+	}
+                                                                                                        
+	RethrowableTask task = new RethrowableTask();
+    final Thread taskThread = new Thread(task);                                                             	taskThread.start();
+	cancelExec.schedule(new Runnable() {
+		public void run() { taskThread.interrupt(); } 
+    }, timeout, unit);
+	taskThread.join(unit.toMillis(timeout)); 
+    task.rethrow();
+}
+
+/**
+ * 最佳实践，使用 Future 来实现限时任务
+ */
+public static void timedRun(Runnable r, long timeout, TimeUnit unit) throws InterruptedException { 
+    Future<?> task = taskExec.submit(r); 
+    try {
+		task.get(timeout, unit); 
+    } catch (TimeoutException e) {
+        // 此时任务仍然还在运行
+		// task will be cancelled below 
+    } catch (ExecutionException e) {
+		// exception thrown in task; 
+        rethrow throw launderThrowable(e.getCause()); 
+    } finally {
+        // 这里需要取消任务的执行，释放线程资源
+		// Harmless if task already completed 
+        task.cancel(true); // interrupt if running
+    }
+}
+```
+
 虽然我们讲，任务应该在捕获 `InterruptedException` 之后恢复中断（不论是重置标志还是重抛异常），但有一种情况是例外的：你自己在手动管理线程或者在自定义线程池，换言之，你自己就是或者你自己在定义线程的拥有者。
+
+如果要设计一个使用了阻塞方法的，允许中断后重试的任务，那么必须在循环中调用阻塞方法，然后在检测到中断的时候不要立刻恢复中断，而是重试任务，等任务执行成功后再恢复中断。如果提前恢复中断，很可能陷入死循环。
+
+```java
+public Task getNextTask(BlockingQueue<Taskgt; queue) {
+    boolean interrupted = false;
+    try {
+    	while (true) {
+    		try {
+    			return queue.take(); 
+         	} catch (InterruptedException e) {
+                // 如果这里直接恢复中断，会导致死循环，所以用一个标志位记住曾经被中断过的信息
+    			interrupted = true;
+    			// fall through and retry
+            }
+    	}
+    } finally {
+        // return 之前恢复中断
+    	if (interrupted)
+    		Thread.currentThread().interrupt();
+    }
+}
+```
+
+即使不适用阻塞方法，可以不断轮旋当前线程的中断状态达到更好的响应速度，但这会增加 CPU 资源的消耗，所以需要权衡。
+

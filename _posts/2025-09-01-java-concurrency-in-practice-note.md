@@ -1374,7 +1374,7 @@ public class Thread {
     // 另一种被动的手段是捕获 InterruptedException
     // 如果你调用了这个方法，那你一定要做点什么，然后恢复中断或者重新抛出中断，不能直接把中断给吞掉
     // 直接吞掉会导致调用栈的上层对象出现异常行为
-    // 如果你执行的任务，没有阻塞方法，那也可以使用这个方式轮询中断标志
+    // 如果你执行的任务没调用阻塞方法，那也可以使用这个方式轮询中断标志，达到响应中断，取消任务的目的
     public static boolean interrupted() { ... }
     ...
 }
@@ -1384,13 +1384,10 @@ public class Thread {
  */
 class PrimeProducer extends Thread {
     private final BlockingQueue<BigInteger> queue;
-    
-    PrimeProducer(BlockingQueue<BigInteger> queue) {
-    	this.queue = queue;
-    }
+    PrimeProducer(BlockingQueue<BigInteger> queue) { this.queue = queue;}
     
     public void run() {
-        try { 
+        try {
             BigInteger p = BigInteger.ONE;
             // 这里的轮询其实没啥必要，因为里面的 put 是阻塞方法，会响应中断
             // 少数场景下，可能会使用这种方式获得一点响应性的提升（因为在阻塞前检查了标志位）
@@ -1541,5 +1538,5 @@ public Task getNextTask(BlockingQueue<Taskgt; queue) {
 }
 ```
 
-即使不适用阻塞方法，可以不断轮旋当前线程的中断状态达到更好的响应速度，但这会增加 CPU 资源的消耗，所以需要权衡。
+即使不使用阻塞方法，也可以不断轮询当前线程的中断状态达到更好的响应速度，但这会增加 CPU 资源的消耗，所以需要权衡。
 

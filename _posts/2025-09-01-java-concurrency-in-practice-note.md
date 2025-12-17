@@ -1675,3 +1675,104 @@ public abstract class SocketUsingTask<T> implements CancellableTask<T> {
 }
 ```
 
+### 停止一个基于线程的服务
+
+应用一般会创建持有线程的服务，比如线程池，这些服务的生命周期往往比创建线程的方法的生命周期要长。对于这样的服务，必须提供生命周期方法，通常包括三类：
+
+- 初始化方法： `start()`、`init()`
+- 状态检查方法： `isRunning()`、`isActive()`
+- 清理/终止方法： `shutdown()`、`destory()`
+
+如果应用需要优雅地停止，这些服务拥有的线程也必须以合适的方式终止。基于封装的原则来讲，能操作线程的，只有线程的拥有者。这意味着，应用不能越过服务，直接给服务拥有的那些线程发送中断或者修改优先级。Java 没有提供 Ownership 的抽象，但是我们可以认为创建线程的对象就是线程的拥有者，应该委托这些对象交互式地终止线程。
+
+假设为了避免内联日志打印导致的性能问题，需要构建一个日志打印服务，维护一个 Log 调用队列，在单独的打印线程中，从队列中取日志并打印出来。一个简单的实现可能如下：
+
+```java
+public class LogWriter {
+    private final BlockingQueue<String> queue;
+    private final LoggerThread logger;
+
+    public LogWriter(Writer writer) {
+        this.queue = new LinkedBlockingQueue<String>(CAPACITY);
+        this.logger = new LoggerThread(writer);
+    }
+
+    public void start() { logger.start();}
+
+    public void log(String msg) throws InterruptedException { queue.put(msg);}
+
+    private class LoggerThread extends Thread {
+        private final PrintWriter writer;
+        
+        public LoggerThread(Writer writer) { this.writer = new PrintWriter(writer); }
+        
+        public void run() {
+            try {
+                while (true)
+                    writer.println(queue.take());
+            } catch (InterruptedException ignored) {
+                // 这个线程直接由 LogWriter 拥有，所以这里吞掉中断是可以的
+            } finally {
+                writer.close();
+            }
+        }
+    }
+}
+```
+
+这个实现有几个问题：
+
+- `LogWriter` 的生命周期比创建 `LoggerThread` 的方法的生命周期要长，所以这里需要给 `LoggerThread` 提供额外的生命周期方法，至少要包含用于终止 `LoggerThread` 的生命周期方法，不然 `LoggerThread` 将无限运行下去，发生资源泄露。
+- 目前的任务取消策略过于粗暴，直接忽略 `InterruptedException` 并关闭 `PrintWriter` 会导致队列中待处理的日志直接丢失。
+- 对于生产者消费者模式的任务，任务取消的语义应该同时包含终止生产任务和消费任务，当前的实现只可以取消消费任务，阻塞在 `take()` 上的执行生产任务的线程不归 `LogWriter` 拥有，所以没办法取消生产者线程，生产者线程将会无限阻塞。
+
+修改之后比较可靠的实现如下：
+
+```java
+public class LogService {
+    private final BlockingQueue<String> queue;
+    private final LoggerThread loggerThread;
+    private final PrintWriter writer;
+    private boolean isShutdown;
+    private int reservations;
+
+    public void start() { loggerThread.start();}
+
+    public void stop() {
+        synchronized (this) { isShutdown = true;}
+        loggerThread.interrupt();
+    }
+
+    public void log(String msg) throws InterruptedException {
+        synchronized (this) {
+            if (isShutdown)
+                throw new IllegalStateException(...);
+            ++reservations;
+        }
+        queue.put(msg);
+    }
+
+    private class LoggerThread extends Thread {
+        public void run() {
+            try {
+                while (true) {
+                    try {
+                        synchronized (this) {
+                            if (isShutdown && reservations == 0)
+                                break;
+                        }
+                        String msg = queue.take();
+                        synchronized (this) { --reservations;}
+                        writer.println(msg);
+                    } catch (InterruptedException e) {
+                        /* retry */
+                    }
+                }
+            } finally {
+                writer.close();
+            }
+        }
+    }
+}
+```
+

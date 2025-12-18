@@ -1683,11 +1683,18 @@ public abstract class SocketUsingTask<T> implements CancellableTask<T> {
 - 状态检查方法： `isRunning()`、`isActive()`
 - 清理/终止方法： `shutdown()`、`destory()`
 
-如果应用需要优雅地停止，这些服务拥有的线程也必须以合适的方式终止。基于封装的原则来讲，能操作线程的，只有线程的拥有者。这意味着，应用不能越过服务，直接给服务拥有的那些线程发送中断或者修改优先级。Java 没有提供 Ownership 的抽象，但是我们可以认为创建线程的对象就是线程的拥有者，应该委托这些对象交互式地终止线程。
+如果应用需要优雅地停止，这些服务拥有的线程也必须以合适的方式终止。就封装原则来说，能操作线程的应该只有线程的拥有者。也就是说，应用不能越过服务，直接给服务拥有的那些线程发送中断或者修改优先级。Java 没有提供 Ownership 的抽象，但是我们可以认为创建线程的对象就是线程的拥有者，应该委托这些对象交互式地终止线程。
 
 假设为了避免内联日志打印导致的性能问题，需要构建一个日志打印服务，维护一个 Log 调用队列，在单独的打印线程中，从队列中取日志并打印出来。一个简单的实现可能如下：
 
 ```java
+/**
+ * LogWriter 的简单实现，不可靠
+ * 1. LogWriter 对象的生命周期比创建 LoggerThread 的方法的声明周期更长，却没有提供用于终止 LoggerThread 的生命周期方法
+ * 这会导致 LoggerThread 一旦被创建就会永远运行，无法被销毁。
+ * 2. LogWriter 也没提供用于关闭自身运行的方法，如果强制杀死 LoggerThread 并销毁 LogWriter 对象，会导致 BlockingQueue
+ * 中待输出的日志全部丢失。
+ */
 public class LogWriter {
     private final BlockingQueue<String> queue;
     private final LoggerThread logger;
@@ -1720,15 +1727,18 @@ public class LogWriter {
 }
 ```
 
-这个实现有几个问题：
-
-- `LogWriter` 的生命周期比创建 `LoggerThread` 的方法的生命周期要长，所以这里需要给 `LoggerThread` 提供额外的生命周期方法，至少要包含用于终止 `LoggerThread` 的生命周期方法，不然 `LoggerThread` 将无限运行下去，发生资源泄露。
-- 目前的任务取消策略过于粗暴，直接忽略 `InterruptedException` 并关闭 `PrintWriter` 会导致队列中待处理的日志直接丢失。
-- 对于生产者消费者模式的任务，任务取消的语义应该同时包含终止生产任务和消费任务，当前的实现只可以取消消费任务，阻塞在 `take()` 上的执行生产任务的线程不归 `LogWriter` 拥有，所以没办法取消生产者线程，生产者线程将会无限阻塞。
-
-修改之后比较可靠的实现如下：
+修改之后相对可靠的实现如下：
 
 ```java
+/**
+ * 使用经典的 Reservation Pattern 实现优雅关闭
+ * 1. 提供 stop() 生命周期方法，用于取消任务，释放资源
+ * 2. 使用 reservations 记录尚未输出的日志数量，用内部锁保护这个共享状态的访问
+ * 3. 使用 isShutdown 作为停止标志位，同样用内部锁保护这个共享状态的访问
+ * 4. 在真正停止之前，尚未输出的日志全部输出
+ * 
+ * 但是这段代码仍然存在一些隐蔽的并发问题，此处不再展开
+ */
 public class LogService {
     private final BlockingQueue<String> queue;
     private final LoggerThread loggerThread;
@@ -1749,7 +1759,16 @@ public class LogService {
                 throw new IllegalStateException(...);
             ++reservations;
         }
-        queue.put(msg);
+        
+        try {
+            queue.put(msg);
+        } catch (Throwable e) { // 捕获所有异常，包括 RuntimeException
+            synchronized (this) {--reservations;}
+            if (e instanceof InterruptedException)
+                throw (InterruptedException) e;
+            else
+                throw (RuntimeException) e; // 或者包装后抛出
+        }
     }
 
     private class LoggerThread extends Thread {
@@ -1757,12 +1776,13 @@ public class LogService {
             try {
                 while (true) {
                     try {
-                        synchronized (this) {
+                        // 这里需要锁外部类的对象
+                        synchronized (LogService.this) {
                             if (isShutdown && reservations == 0)
                                 break;
                         }
                         String msg = queue.take();
-                        synchronized (this) { --reservations;}
+                        synchronized (LogService.this) { --reservations;}
                         writer.println(msg);
                     } catch (InterruptedException e) {
                         /* retry */
@@ -1772,6 +1792,194 @@ public class LogService {
                 writer.close();
             }
         }
+    }
+}
+```
+
+更好的方式是把线程的所有权交给线程池，这样可以减少代码的复杂度。
+
+```java
+public class LogService {
+    private static final long TIMEOUT = 10;
+    private static final TimeUnit UNIT = TimeUnit.SECONDS;
+    private final ExecutorService exec = Executors.newSingleThreadExecutor();
+    private final PrintWriter writer;
+
+    public LogService(PrintWriter writer) {
+        this.writer = writer;
+    }
+
+    public void start() { 
+        // ExecutorService 在初始化时已经处于运行状态，
+        // 这里留空是为了保持服务生命周期接口的一致性。
+    }
+
+    public void stop() throws InterruptedException {
+        try {
+            // 1. 平滑关闭：不再接收新任务，但会执行完队列中已提交的任务
+            exec.shutdown();
+            // 2. 阻塞当前线程，直到所有任务执行完毕或超时
+            exec.awaitTermination(TIMEOUT, UNIT);
+        } finally {
+            // 3. 无论是否超时，最终关闭输出流
+            writer.close();
+        }
+    }
+
+    public void log(String msg) {
+        try {
+            // 提交任务给 Executor
+            exec.execute(new WriteTask(msg));
+        } catch (RejectedExecutionException ignored) {
+            // 如果服务已经关闭（shutdown 被调用），Executor 会抛出此异常。
+            // 这里选择忽略，意味着关闭后提交的日志将被丢弃。
+        }
+    }
+    
+    // 补齐：负责实际写入操作的任务类
+    private class WriteTask implements Runnable {
+        private final String msg;
+
+        public WriteTask(String msg) {
+            this.msg = msg;
+        }
+
+        public void run() {
+            // 注意：PrintWriter 不会抛出 IOException，但在生产环境中
+            // 可能需要通过 writer.checkError() 检查错误
+            writer.println(msg);
+        }
+    }
+}
+```
+
+还有另外一种经典模式，毒丸” (Poison Pill) 模式：不通过设置标志位来告诉消费者停止，而是往队列里扔一个特殊的“毒丸”对象。消费者吃到“毒丸”就自杀（退出循环），但是这种方式只有在搭配无界队列时才是可靠的，因为只有这样放“毒丸”的过程才不会被阻塞导致死锁问题，另外一个局限性是，这种方式只能支持有限数量的生产者和消费者。
+
+```java
+public class LogService {
+    // 1. 定义“毒丸”对象，必须是唯一的单例
+    private static final String POISON = new String("POISON_PILL");
+    private final BlockingQueue<String> queue = new LinkedBlockingQueue<>();
+    private final LoggerThread loggerThread = new LoggerThread();
+    private final PrintWriter writer;
+    // 依然需要一个标志位来防止关闭后外部继续提交日志
+    private boolean isShutdown = false;
+
+    public LogService(PrintWriter writer) {this.writer = writer;}
+
+    public void start() {loggerThread.start();}
+
+    public void stop() {
+        synchronized (this) {
+            if (isShutdown) 
+                return;
+            isShutdown = true;
+        }
+        try {
+            // 2. 核心：向队列放入毒丸
+            // 这保证了毒丸之前的日志一定会被消费完，毒丸之后的不会被处理
+            queue.put(POISON);
+        } catch (InterruptedException e) {
+            // 如果在放入毒丸时被中断，重新设置中断状态
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    public void log(String msg) throws InterruptedException {
+        synchronized (this) {
+            if (isShutdown)
+                throw new IllegalStateException("Service is shutdown");
+        }
+        // 生产者只管往里放，不需要知道消费者的状态
+        queue.put(msg);
+    }
+
+    private class LoggerThread extends Thread {
+        public void run() {
+            try {
+                while (true) {
+                    try {
+                        String msg = queue.take();
+                        if (msg == POISON)
+                            break; // 吃到毒丸，退出循环
+                        writer.println(msg);
+                    } catch (InterruptedException e) {
+                        // 消费者线程允许重试，直到吃到毒丸
+                    }
+                }
+            } finally {
+                writer.close();
+            }
+        }
+    }
+}
+```
+
+使用线程池终止服务也有它的局限性，如果需要更快的响应速度，那么需要执行强制关闭 `shutdownNow()`，这个方法会返回所有已经提交但是没有执行完毕的任务列表，问题在于不知道这些任务哪些执行了一半，哪些是还没被执行。但也有方法解决这个问题，可以在任务的取消策略中增加记录未完成任务的操作。
+
+```java
+/**
+ * 这种方式有误报的可能
+ * 1. 任务实际上已经执行完了最后一行代码。
+ * 2. 就在任务即将退出 run() 方法，但在进入 finally 块之前的那个微小瞬间，线程池收到了 shutdownNow() 指令。
+ * 线程被设置了中断状态。
+ * 3. 代码进入 finally 块，检测到 isShutdown 为 true 且 isInterrupted 为 true。
+ * 结果：一个明明已经成功完成的任务，被错误地添加到了 tasksCancelledAtShutdown 列表中。
+ * 所以这种方法要求任务本身是幂等的，即使被重复执行也不会有影响
+ */
+public class TrackingExecutor extends AbstractExecutorService {
+    private final ExecutorService exec;
+    // 使用同步 Set 来保存被取消的任务，保证线程安全
+    private final Set<Runnable> tasksCancelledAtShutdown = Collections.synchronizedSet(new HashSet<>());
+
+    public TrackingExecutor(ExecutorService exec) {this.exec = exec;}
+
+    /**
+     * 获取那些“已经开始执行但因关闭被中断”的任务列表
+     * 注意：必须在 executor 终止后调用才能获得完整列表
+     */
+    public List<Runnable> getCancelledTasks() {
+        if (!exec.isTerminated()) {
+            throw new IllegalStateException("Executor not terminated");
+        }
+        return new ArrayList<>(tasksCancelledAtShutdown);
+    }
+
+    @Override
+    public void execute(final Runnable runnable) {
+        exec.execute(new Runnable() {
+            public void run() {
+                try {
+                    runnable.run();
+                } finally {
+                    // 核心逻辑：
+                    // 如果当前 Executor 正在关闭 (isShutdown)，
+                    // 并且当前线程被中断 (isInterrupted)，
+                    // 那么我们认为这个任务是被强行终止的。
+                    if (isShutdown() && Thread.currentThread().isInterrupted()) {
+                        tasksCancelledAtShutdown.add(runnable);
+                    }
+                }
+            }
+        });
+    }
+
+    // --- 以下是委托给底层 exec 的标准方法 ---
+    @Override
+    public void shutdown() {exec.shutdown();}
+
+    @Override
+    public List<Runnable> shutdownNow() {return exec.shutdownNow();}
+
+    @Override
+    public boolean isShutdown() {return exec.isShutdown();}
+
+    @Override
+    public boolean isTerminated() {return exec.isTerminated();}
+
+    @Override
+    public boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException {
+        return exec.awaitTermination(timeout, unit);
     }
 }
 ```

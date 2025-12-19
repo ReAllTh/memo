@@ -1984,3 +1984,85 @@ public class TrackingExecutor extends AbstractExecutorService {
 }
 ```
 
+### 处理异常的线程终止
+
+线程提前终止的最主要的原因是任务执行过程中抛出 `RuntimeException`。
+
+对单线程程序来说，抛出 `RuntimeException` 可能意味着堆栈多了一大堆醒目的打印，然后线程退出，程序退出，相对比较直观。
+
+但是多线程程序可能不会因为某个线程抛出 `RuntimeException`  就停止运行，所以在线程异常提前终止时，需要用合适的方式处理线程的退出。 
+
+主流的方式包括：
+
+- 在任务逻辑中写 try-catch 块，提前捕获可能发生的异常，但这种方式只能捕获方法显式声明过的异常。
+- 给线程设置 `UncaughtExceptionHandler`，在抛出异常时记录线程信息，对于线程池来说，需要在构造器中传入重写了 `newThread()` 的 `ThreadFactory`，但是这种方式只对通过 `execute()` 传入的任务有效，因为用 `submit()` 提交的任务抛出的异常会被拦截并封装在 `Future` 里面，作为任务的执行结果，然后在 `get()` 的时候重新抛出，不会触发 `UncaughtException` 抛出。另外一个局限性是，这种方式没办法获取导致异常抛出的任务，所以只能作为线程级别的异常处理使用。
+- 继承 `ThreadPoolExecutor` 并重写 `afterExecution()`，在任务异常结束时记录任务的信息。
+
+这三种方式一般会一起使用，构成针对线程未处理异常的纵深防御，避免未处理异常导致的故障扩散。
+
+```java
+public class MyThreadFactory implements ThreadFactory {
+    @Override
+    public Thread newThread(Runnable r) {
+        Thread t = new Thread(r);
+        // 在这里设置未捕获异常处理器
+        t.setUncaughtExceptionHandler((thread, throwable) -> {
+            System.err.println("线程 " + thread.getName() + " 抛出了异常: " + throwable.getMessage());
+            // 可以在这里进行日志记录或报警
+        });
+        return t;
+    }
+}
+
+public class ExtendedExecutor extends ThreadPoolExecutor {
+    public ExtendedExecutor(int corePoolSize, int maximumPoolSize, long keepAliveTime, TimeUnit unit,
+                            BlockingQueue<Runnable> workQueue,
+                            ThreadFactory threadFactory) {
+        super(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory);
+    }
+
+    @Override
+    protected void afterExecute(Runnable r, Throwable t) {
+        super.afterExecute(r, t);
+        // 1. 直接处理异常（针对 execute 提交的任务）
+        if (t == null && r instanceof Future<?>) {
+            try {
+                // 2. 针对 submit 提交的任务，需要从 Future 中提取异常
+                Object result = ((Future<?>) r).get();
+            } catch (CancellationException ce) {
+                t = ce;
+            } catch (ExecutionException ee) {
+                t = ee.getCause();
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt(); // 保持中断状态
+            }
+        }
+        
+        if (t != null) {
+            System.err.println("任务执行失败，异常信息: " + t.getMessage());
+            // 在这里执行你的恢复逻辑 (Recovery Action)
+        }
+    }
+}
+
+ThreadPoolExecutor executor = new ExtendedExecutor(
+    5, 10, 60, TimeUnit.SECONDS,
+    new LinkedBlockingQueue<>(),
+    new MyThreadFactory() // 注入自定义工厂
+);
+
+executor.execute(() -> {
+    try {
+        //...
+    } catch(BussinessException e) {
+        // 记录异常
+    } finally {
+        // 释放资源或者重试处理
+    }
+});
+
+```
+
+### JVM 关闭
+
+TODO

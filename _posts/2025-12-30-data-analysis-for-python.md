@@ -78,9 +78,9 @@ tags: [Python, Data Analysis, 阅读笔记]
 
 NumPy 是 Numerical Python 的缩写，是 Python 数值计算最重要的基础包之一。许多提供科学功能的计算包使用 NumPy 的数组对象作为数据交换的标准接口语言之一。
 
-> 下文的所有代码片段省略了 numpy 的引入：`import numpy as np`。
+> 提示
 >
-> 虽然也可以用 `from numpy import *` 引入 numpy，这样可以省略 `np`。但作者建议不要养成这种习惯。因为 numpy 命名空间很大，包含许多与内置 Python 函数（例如 min 和 max）冲突的同名函数。
+> 下文的所有代码片段省略了 numpy 的引入：`import numpy as np`。虽然也可以用 `from numpy import *` 引入 numpy，这样可以省略 `np`。但作者建议不要养成这种习惯。因为 numpy 命名空间很大，包含许多与内置 Python 函数（例如 min 和 max）冲突的同名函数。
 {: .prompt-tip }
 
 ### 4.1 NumPy ndarray：多维数组对象

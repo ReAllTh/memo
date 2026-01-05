@@ -1089,5 +1089,1415 @@ pd.Index(["foo", "foo", "bar", "bar"])
 
 #### 重索引
 
+pandas 对象的一个重要方法是 `reindex`，这意味着创建一个新对象，并重新排列值以与新索引对齐。例如：
 
+```python
+obj = pd.Series([4.5, 7.2, -5.3, 3.6], index=["d", "b", "a", "c"])
+obj
+# d    4.5
+# b    7.2
+# a   -5.3
+# c    3.6
+# dtype: float64
+obj2 = obj.reindex(["a", "b", "c", "d", "e"]) # 根据新索引重新排列数据，如果尚不存在任何索引值，则会引入缺失值
+obj2
+# a   -5.3
+# b    7.2
+# c    3.6
+# d    4.5
+# e    NaN
+# dtype: float64
+```
 
+对于时间序列等有序数据，可能需要在重索引时进行一些插值或填充。`method` 选项允许我们使用诸如 `ffill` 之类的方法来执行此操作，该方法向前填充（forward-fill）值：
+
+```python
+obj3 = pd.Series(["blue", "purple", "yellow"], index=[0, 2, 4])
+obj3
+# 0      blue
+# 2    purple
+# 4    yellow
+# dtype: object
+obj3.reindex(np.arange(6), method="ffill")
+# 0      blue
+# 1      blue
+# 2    purple
+# 3    purple
+# 4    yellow
+# 5    yellow
+# dtype: object
+```
+
+使用 DataFrame，重索引可以更改（行）索引、列或两者。当仅传递一个序列时，它会重索引行：
+
+```python
+frame = pd.DataFrame(np.arange(9).reshape((3, 3)),
+                     index=["a", "c", "d"],
+                     columns=["Ohio", "Texas", "California"])
+frame
+#    Ohio  Texas  California
+# a     0      1           2
+# c     3      4           5
+# d     6      7           8
+frame2 = frame.reindex(index=["a", "b", "c", "d"])
+frame2
+#    Ohio  Texas  California
+# a   0.0    1.0         2.0
+# b   NaN    NaN         NaN
+# c   3.0    4.0         5.0
+# d   6.0    7.0         8.0
+```
+
+可以使用 `columns` 关键字对列重新索引：
+
+```python
+states = ["Texas", "Utah", "California"]
+frame.reindex(columns=states)
+#    Texas  Utah  California
+# a      1   NaN           2
+# c      4   NaN           5
+# d      7   NaN           8
+```
+
+由于 `"Ohio"` 不在 `states` 内，因此该列的数据将从结果中删除。
+
+重索引特定轴的另一种方法是将新轴标签作为位置参数传递，然后使用 `axis` 关键字指定要重新索引的轴：
+
+```python
+frame.reindex(states, axis="columns")
+#    Texas  Utah  California
+# a      1   NaN           2
+# c      4   NaN           5
+# d      7   NaN           8
+```
+
+有关重索引参数的更多信息，请参阅下表。
+
+| Argument     | Description                                                  |
+| :----------- | :----------------------------------------------------------- |
+| `index`      | 用作索引的新序列。可以是 Index 实例或其他任何类似序列的 Python 数据结构。索引会被原样使用。 |
+| `method`     | 插值（填充）方法；`'ffill'` 为前向填充，`'bfill'` 为后向填充。 |
+| `fill_value` | 当引入缺失数据时使用的替代值。                               |
+| `limit`      | 当进行前向或后向填充时，允许填充的最大间隙大小（以元素数量计）。 |
+| `tolerance`  | 当进行前向或后向填充时，对于非精确匹配，允许填充的最大间隙（以绝对距离计）。 |
+| `level`      | 在 MultiIndex 的指定级别（level）上匹配简单 Index；或者选择子集。 |
+| `copy`       | 默认为 True，即如果新索引与旧索引相同，也会复制底层数据；如果为 False，当索引相同时则不复制数据。 |
+
+还可以使用 `loc` 运算符（Label-based location 基于标签的定位）重索引，并且许多用户更喜欢始终这样做。仅当所有新索引标签已存在于 DataFrame 中时，此方法才有效（不同于 `reindex` 为新标签插入缺失的数据）：
+
+```python
+frame.loc[["a", "d", "c"], ["California", "Texas"]]
+#    California  Texas
+# a           2      1
+# d           8      7
+# c           5      4
+```
+
+#### 从轴上删除条目
+
+虽然通过 `reindex` 方法或基于 `.loc` 的索引操作来删除轴上的一个或多个条目是很简单的。但由于这种方式可能需要进行一些数据整理和集合逻辑运算（例如计算差集），`drop` 方法提供了一种更直接的选择：它会返回一个新对象，并将指定标签的值从对应的轴上删除。
+
+```python
+obj = pd.Series(np.arange(5.), index=["a", "b", "c", "d", "e"])
+obj
+# a    0.0
+# b    1.0
+# c    2.0
+# d    3.0
+# e    4.0
+# dtype: float64
+new_obj = obj.drop("c")
+new_obj
+# a    0.0
+# b    1.0
+# d    3.0
+# e    4.0
+# dtype: float64
+obj.drop(["d", "c"])
+# a    0.0
+# b    1.0
+# e    4.0
+# dtype: float64
+```
+
+使用 DataFrame，可以从任一轴删除索引值。为了说明这一点，我们首先创建一个示例 DataFrame：
+
+```python
+data = pd.DataFrame(np.arange(16).reshape((4, 4)),
+                    index=["Ohio", "Colorado", "Utah", "New York"],
+                    columns=["one", "two", "three", "four"])
+data
+#           one  two  three  four
+# Ohio        0    1      2     3
+# Colorado    4    5      6     7
+# Utah        8    9     10    11
+# New York   12   13     14    15
+data.drop(index=["Colorado", "Ohio"])
+#           one  two  three  four
+# Utah        8    9     10    11
+# New York   12   13     14    15
+data.drop(columns=["two"]) 或 data.drop("two", axis=1)
+#           one  three  four
+# Ohio        0      2     3
+# Colorado    4      6     7
+# Utah        8     10    11
+# New York   12     14    15
+data.drop(["two", "four"], axis="columns")
+#           one  three
+# Ohio        0      2
+# Colorado    4      6
+# Utah        8     10
+# New York   12     14
+```
+
+#### 索引、选择和过滤
+
+Series 索引 (`obj[...]`) 的工作方式与 NumPy 数组索引类似，只不过你可以使用 Series 的索引值而不仅仅是整数。以下是一些例子：
+
+```python
+obj = pd.Series(np.arange(4.), index=["a", "b", "c", "d"])
+obj
+# a    0.0
+# b    1.0
+# c    2.0
+# d    3.0
+# dtype: float64
+obj["b"]
+# 1.0
+obj[1]
+# 1.0
+obj[2:4]
+# c    2.0
+# d    3.0
+# dtype: float64
+obj[["b", "a", "d"]]
+# b    1.0
+# a    0.0
+# d    3.0
+# dtype: float64
+obj[[1, 3]]
+# b    1.0
+# d    3.0
+# dtype: float64
+obj[obj < 2]
+# a    0.0
+# b    1.0
+# dtype: float64
+```
+
+虽然可以通过这种方式使用标签选择数据，但选择索引值的首选方法是使用特殊的 `loc` 运算符：
+
+```python
+obj.loc[["b", "a", "d"]]
+# b    1.0
+# a    0.0
+# d    3.0
+# dtype: float64
+```
+
+优先 `loc` 的原因是因为用 `[]` 索引时对整数的处理是不一致的。只有在索引包含整数时，基于常规 `[]` 的索引才会将整数视为标签。
+
+例如：
+
+```python
+obj1 = pd.Series([1, 2, 3], index=[2, 0, 1])
+obj2 = pd.Series([1, 2, 3], index=["a", "b", "c"])
+obj1
+# 2    1
+# 0    2
+# 1    3
+# dtype: int64
+obj2
+# a    1
+# b    2
+# c    3
+# dtype: int64
+obj1[[0, 1, 2]]
+# 0    2
+# 1    3
+# 2    1
+# dtype: int64
+obj2[[0, 1, 2]]
+# a    1
+# b    2
+# c    3
+# dtype: int64
+```
+
+使用 `loc` 时，当索引不包含整数时，表达式 `obj.loc[[0, 1, 2]]` 将失败：
+
+```python
+obj2.loc[[0, 1]]
+---------------------------------------------------------------------------
+KeyError                                  Traceback (most recent call last)
+/tmp/ipykernel_804589/4185657903.py in <module>
+----> 1 obj2.loc[[0, 1]]
+
+^ LONG EXCEPTION ABBREVIATED ^
+
+KeyError: "None of [Int64Index([0, 1], dtype="int64")] are in the [index]"
+```
+
+由于 `loc` 运算符仅使用标签进行索引，因此还有一个 `iloc` （Integer-based Location）运算符仅使用整数进行索引，无论索引是否包含整数，都可以一致地工作：
+
+```python
+obj1.iloc[[0, 1, 2]]
+# 2    1
+# 0    2
+# 1    3
+# dtype: int64
+obj2.iloc[[0, 1, 2]]
+# a    1
+# b    2
+# c    3
+# dtype: int64
+```
+
+您还可以使用标签进行切片，但它的工作方式与普通 Python 切片不同，因为端点是包含在内的，也就是闭区间：
+
+```python
+obj2.loc["b":"c"]
+# b    2
+# c    3
+# dtype: int64
+```
+
+使用这些方法赋值会修改 Series 的相应部分：
+
+```python
+obj2.loc["b":"c"] = 5 # 注意 loc 后面是方括号，这个不是方法调用，不能用圆括号
+obj2
+# a    1
+# b    5
+# c    5
+# dtype: int64
+```
+
+对 DataFrame 进行索引会检索具有单个值或序列的一个或多个列：
+
+```python
+data = pd.DataFrame(np.arange(16).reshape((4, 4)),
+                    index=["Ohio", "Colorado", "Utah", "New York"],
+                    columns=["one", "two", "three", "four"])
+data
+#           one  two  three  four
+# Ohio        0    1      2     3
+# Colorado    4    5      6     7
+# Utah        8    9     10    11
+# New York   12   13     14    15
+
+使用 [] 索引
+---
+data["two"]
+# Ohio         1
+# Colorado     5
+# Utah         9
+# New York    13
+# Name: two, dtype: int64
+data[["three", "one"]]
+#           three  one
+# Ohio          2    0
+# Colorado      6    4
+# Utah         10    8
+# New York     14   12
+data[:2]
+#           one  two  three  four
+# Ohio        0    1      2     3
+# Colorado    4    5      6     7
+data[data["three"] > 5]
+#           one  two  three  four
+# Colorado    4    5      6     7
+# Utah        8    9     10    11
+# New York   12   13     14    15
+data < 5
+#             one    two  three   four
+# Ohio       True   True   True   True
+# Colorado   True  False  False  False
+# Utah      False  False  False  False
+# New York  False  False  False  False
+data[data < 5] = 0
+#           one  two  three  four
+# Ohio        0    0      0     0
+# Colorado    0    5      6     7
+# Utah        8    9     10    11
+# New York   12   13     14    15
+
+使用 .loc 和 .iloc 索引
+---
+data.loc["Colorado"]
+# one      0
+# two      5
+# three    6
+# four     7
+# Name: Colorado, dtype: int64
+data.loc[["Colorado", "New York"]]
+#           one  two  three  four
+# Colorado    0    5      6     7
+# New York   12   13     14    15
+data.loc["Colorado", ["two", "three"]]
+# two      5
+# three    6
+# Name: Colorado, dtype: int64
+data.loc[:"Utah", "two"]
+# Ohio        0
+# Colorado    5
+# Utah        9
+# Name: two, dtype: int64
+data.iloc[2]
+# one       8
+# two       9
+# three    10
+# four     11
+# Name: Utah, dtype: int64
+data.iloc[[2, 1]]
+#           one  two  three  four
+# Utah        8    9     10    11
+# Colorado    0    5      6     7
+data.iloc[2, [3, 0, 1]]
+# four    11
+# one      8
+# two      9
+# Name: Utah, dtype: int64
+data.iloc[[1, 2], [3, 0, 1]]
+#           four  one  two
+# Colorado     7    0    5
+# Utah        11    8    9
+data.iloc[:, :3][data.three > 5]
+#           one  two  three
+# Colorado    0    5      6
+# Utah        8    9     10
+# New York   12   13     14
+
+# 布尔数组可以与 loc 一起使用，但不能与 iloc 一起使用：
+data.loc[data.three >= 2]
+#           one  two  three  four
+# Colorado    0    5      6     7
+# Utah        8    9     10    11
+# New York   12   13     14    15
+```
+
+有多种方法可以选择和重排列 pandas 对象中包含的数据。对于 DataFrame，下表提供了其中许多内容的简短摘要。
+
+| Type                        | Notes                                                        |
+| :-------------------------- | :----------------------------------------------------------- |
+| `df[val]`                   | 从 DataFrame 中选取单列或列序列；特殊情况便利：布尔数组（过滤行）、切片（切片行）或布尔 DataFrame（根据某些标准设置值）。 |
+| `df.loc[val]`               | 通过标签选取 DataFrame 的单行或行子集。                      |
+| `df.loc[:, val]`            | 通过标签选取单列或列子集。                                   |
+| `df.loc[val1, val2]`        | 通过标签同时选取行和列。                                     |
+| `df.iloc[where]`            | 通过整数位置选取 DataFrame 的单行或行子集。                  |
+| `df.iloc[:, where]`         | 通过整数位置选取单列或列子集。                               |
+| `df.iloc[where_i, where_j]` | 通过整数位置同时选取行和列。                                 |
+| `df.at[label_i, label_j]`   | 通过行和列标签选取单个标量值。                               |
+| `df.iat[i, j]`              | 通过行和列位置（整数）选取单个标量值。                       |
+| `reindex`                   | 通过标签选择行或列（将一个或多个轴匹配到新索引）。           |
+| `get_value, set_value`      | （已弃用）通过行和列标签选取单个值。                         |
+
+使用由整数索引的 pandas 对象可能会成为新用户的绊脚石，因为它们的工作方式与内置的 Python 数据结构（如列表和元组）不同。例如，您可能不希望以下代码生成错误：
+
+```python
+ser = pd.Series(np.arange(3.))
+ser
+# 0    0.0
+# 1    1.0
+# 2    2.0
+# dtype: float64
+ser[-1]
+---------------------------------------------------------------------------
+ValueError                                Traceback (most recent call last)
+~/miniforge-x86/envs/book-env/lib/python3.10/site-packages/pandas/core/indexes/ra
+nge.py in get_loc(self, key)
+    344             try:
+--> 345                 return self._range.index(new_key)
+    346             except ValueError as err:
+ValueError: -1 is not in range
+The above exception was the direct cause of the following exception:
+KeyError                                  Traceback (most recent call last)
+<ipython-input-166-44969a759c20> in <module>
+----> 1 ser[-1]
+~/miniforge-x86/envs/book-env/lib/python3.10/site-packages/pandas/core/series.py 
+in __getitem__(self, key)
+   1010 
+   1011         elif key_is_scalar:
+-> 1012             return self._get_value(key)
+   1013 
+   1014         if is_hashable(key):
+~/miniforge-x86/envs/book-env/lib/python3.10/site-packages/pandas/core/series.py 
+in _get_value(self, label, takeable)
+   1119 
+   1120         # Similar to Index.get_value, but we do not fall back to position
+al
+-> 1121         loc = self.index.get_loc(label)
+   1122 
+   1123         if is_integer(loc):
+~/miniforge-x86/envs/book-env/lib/python3.10/site-packages/pandas/core/indexes/ra
+nge.py in get_loc(self, key)
+    345                 return self._range.index(new_key)
+    346             except ValueError as err:
+--> 347                 raise KeyError(key) from err
+    348         self._check_indexing_error(key)
+    349         raise KeyError(key)
+KeyError: -1
+```
+
+在这种情况下，pandas 可以 “退回” 整数索引，但通常很难在不向用户代码中引入细微错误的情况下做到这一点。假如我们有一个包含 0、1 和 2 的索引，但 pandas 不会猜测用户想要什么（到底是基于标签的索引还是基于位置的索引）：
+
+```python
+ser
+# 0    0.0
+# 1    1.0
+# 2    2.0
+# dtype: float64
+```
+
+另一方面，对于非整数索引，就不存在这样的歧义：
+
+```python
+ser2 = pd.Series(np.arange(3.), index=["a", "b", "c"])
+ser2[-1]
+# 2.0
+```
+
+另一方面，整数切片始终是面向整数的：
+
+```python
+ser[:2]
+# 0    0.0
+# 1    1.0
+# dtype: float64
+```
+
+由于这些陷阱，最好始终首选使用 `loc` 和 `iloc` 进行索引以避免歧义。
+
+可以通过标签或整数位置给列或行赋值：
+
+```python
+data.loc[:, "one"] = 1
+data
+#           one  two  three  four
+# Ohio        1    0      0     0
+# Colorado    1    5      6     7
+# Utah        1    9     10    11
+# New York    1   13     14    15
+data.iloc[2] = 5
+data
+#           one  two  three  four
+# Ohio        1    0      0     0
+# Colorado    1    5      6     7
+# Utah        5    5      5     5
+# New York    1   13     14    15
+data.loc[data["four"] > 5] = 3
+data
+#           one  two  three  four
+# Ohio        1    0      0     0
+# Colorado    3    3      3     3
+# Utah        5    5      5     5
+# New York    3    3      3     3
+```
+
+对于新的 pandas 用户来说，一个常见的问题是在链式选择时赋值，如下所示：
+
+```python
+data.loc[data.three == 5]["three"] = 6
+---------------------------------------------------------------------------
+<ipython-input-11-0ed1cf2155d5>:1: SettingWithCopyWarning:
+A value is trying to be set on a copy of a slice from a DataFrame.
+Try using .loc[row_indexer,col_indexer] = value instead
+```
+
+根据数据内容，这可能会打印一个特殊的 `SettingWithCopyWarning`，它警告你正在尝试修改临时值（`data.loc[data. Three == 5] `的非空结果）而不是原始 DataFrame 数据。可以看到，原始数据未修改：
+
+```python
+data
+#           one  two  three  four
+# Ohio        1    0      0     0
+# Colorado    3    3      3     3
+# Utah        5    5      5     5
+# New York    3    3      3     3
+```
+
+在这些情况下，修复方法是把链式赋值重写成使用单个 `loc` 操作：
+
+```python
+data.loc[data.three == 5, "three"] = 6
+#           one  two  three  four
+# Ohio        1    0      0     0
+# Colorado    3    3      3     3
+# Utah        5    5      6     5
+# New York    3    3      3     3
+```
+
+一个好的经验法则是在进行赋值时避免链式索引。
+
+#### 算术运算和数据对齐
+
+pandas 可以使处理具有不同索引的对象变得更加简单。例如，当你添加对象时，如果任何索引对不相同，则结果中的相应索引将是索引对的并集。让我们看一个例子：
+
+```python
+s1 = pd.Series([7.3, -2.5, 3.4, 1.5], index=["a", "c", "d", "e"])
+s2 = pd.Series([-2.1, 3.6, -1.5, 4, 3.1], index=["a", "c", "e", "f", "g"])
+s1 + s2
+# a    5.2
+# c    1.1
+# d    NaN
+# e    0.0
+# f    NaN
+# g    NaN
+# dtype: float64
+```
+
+内部数据对齐在不匹配的标签位置引入了缺失值。缺失值将在进一步的算术计算中传播。
+
+对于 DataFrame，对齐是在行和列上执行的：
+
+```python
+df1 = pd.DataFrame(np.arange(9.).reshape((3, 3)), columns=list("bcd"),
+                   index=["Ohio", "Texas", "Colorado"])
+df2 = pd.DataFrame(np.arange(12.).reshape((4, 3)), columns=list("bde"),
+                   index=["Utah", "Ohio", "Texas", "Oregon"])
+df1
+#             b    c    d
+# Ohio      0.0  1.0  2.0
+# Texas     3.0  4.0  5.0
+# Colorado  6.0  7.0  8.0
+df2
+#           b     d     e
+# Utah    0.0   1.0   2.0
+# Ohio    3.0   4.0   5.0
+# Texas   6.0   7.0   8.0
+# Oregon  9.0  10.0  11.0
+df1 + df2
+#             b   c     d   e
+# Colorado  NaN NaN   NaN NaN
+# Ohio      3.0 NaN   6.0 NaN
+# Oregon    NaN NaN   NaN NaN
+# Texas     9.0 NaN  12.0 NaN
+# Utah      NaN NaN   NaN NaN
+```
+
+由于在两个 DataFrame 对象中均未找到 `“c”` 和 `“e”` 列，因此它们在结果中显示为缺失，行也是如此。
+
+如果添加没有共同列或行标签的 DataFrame 对象，结果将包含所有空值：
+
+```python
+df1 = pd.DataFrame({"A": [1, 2]})
+df2 = pd.DataFrame({"B": [3, 4]})
+df1 + df2
+#     A   B
+# 0 NaN NaN
+# 1 NaN NaN
+```
+
+在不同索引对象之间的算术运算中，当在一个对象中找到轴标签但在另一个对象中没有找到时，此时你可能需要填充特殊值，例如 0。
+
+下面是一个示例，通过将 `np.nan` 分配给它来将特定值设置为 NA (null)：
+
+```python
+df1 = pd.DataFrame(np.arange(12.).reshape((3, 4)),
+                   columns=list("abcd"))
+df2 = pd.DataFrame(np.arange(20.).reshape((4, 5)),
+                   columns=list("abcde"))
+df2.loc[1, "b"] = np.nan
+df1
+#      a    b     c     d
+# 0  0.0  1.0   2.0   3.0
+# 1  4.0  5.0   6.0   7.0
+# 2  8.0  9.0  10.0  11.0
+df2
+#       a     b     c     d     e
+# 0   0.0   1.0   2.0   3.0   4.0
+# 1   5.0   NaN   7.0   8.0   9.0
+# 2  10.0  11.0  12.0  13.0  14.0
+# 3  15.0  16.0  17.0  18.0  19.0
+df1 + df2
+#       a     b     c     d   e
+# 0   0.0   2.0   4.0   6.0 NaN
+# 1   9.0   NaN  13.0  15.0 NaN
+# 2  18.0  20.0  22.0  24.0 NaN
+# 3   NaN   NaN   NaN   NaN NaN
+```
+
+使用 `df1` 上的 add 方法，将 `df2` 和参数传递给 `fill_value`，这将在计算之前，先给缺失的一方垫一个底：
+
+```python
+df1.add(df2, fill_value=0)
+#       a     b     c     d     e
+# 0   0.0   2.0   4.0   6.0   4.0
+# 1   9.0   5.0  13.0  15.0   9.0
+# 2  18.0  20.0  22.0  24.0  14.0
+# 3  15.0  16.0  17.0  18.0  19.0
+```
+
+很多用于算术运算的操作都有对应的 Series 和 DataFrame 方法和以子母 r 开头的反向运算方法。
+
+```python
+1 / df1
+#        a         b         c         d
+# 0    inf  1.000000  0.500000  0.333333
+# 1  0.250  0.200000  0.166667  0.142857
+# 2  0.125  0.111111  0.100000  0.090909
+df1.rdiv(1)
+#        a         b         c         d
+# 0    inf  1.000000  0.500000  0.333333
+# 1  0.250  0.200000  0.166667  0.142857
+# 2  0.125  0.111111  0.100000  0.090909
+```
+
+| Method              | Description                                |
+| :------------------ | :----------------------------------------- |
+| `add`               | 用于加法 (`+`)                             |
+| `sub`               | 用于减法 (`-`)                             |
+| `div`               | 用于除法 (`/`)                             |
+| `floordiv`          | 用于整除 (`//`)                            |
+| `mul`               | 用于乘法 (`*`)                             |
+| `pow`               | 用于幂运算 (`**`)                          |
+| `radd`, `rsub`, ... | 反向版本的算术方法（例如，`other + df`）。 |
+
+与不同维度的 NumPy 数组一样，DataFrame 和 Series 之间的算术运算也是可行的。
+
+首先，作为一个示例，考虑二维数组与其行之一之间的差异：
+
+```python
+arr = np.arange(12.).reshape((3, 4))
+arr
+# array([[ 0.,  1.,  2.,  3.],
+#        [ 4.,  5.,  6.,  7.],
+#        [ 8.,  9., 10., 11.]])
+arr[0]
+# array([0., 1., 2., 3.])
+arr - arr[0]
+# array([[0., 0., 0., 0.],
+#        [4., 4., 4., 4.],
+#        [8., 8., 8., 8.]])
+```
+
+当我们从 `arr` 中减去 `arr[0]` 时，每行执行一次减法。这称为广播。 DataFrame 和 Series 之间的操作是类似的：
+
+```python
+frame = pd.DataFrame(np.arange(12.).reshape((4, 3)),
+                     columns=list("bde"),
+                     index=["Utah", "Ohio", "Texas", "Oregon"])
+series = frame.iloc[0]
+frame
+#           b     d     e
+# Utah    0.0   1.0   2.0
+# Ohio    3.0   4.0   5.0
+# Texas   6.0   7.0   8.0
+# Oregon  9.0  10.0  11.0
+series
+# b    0.0
+# d    1.0
+# e    2.0
+# Name: Utah, dtype: float64
+frame - series
+#           b    d    e
+# Utah    0.0  0.0  0.0
+# Ohio    3.0  3.0  3.0
+# Texas   6.0  6.0  6.0
+# Oregon  9.0  9.0  9.0
+```
+
+如果在 DataFrame 的列或 Series 的索引中都找不到索引值，则对象将被重新索引以形成并集：
+
+```python
+series2 = pd.Series(np.arange(3), index=["b", "e", "f"])
+series2
+# b    0
+# e    1
+# f    2
+# dtype: int64
+frame + series2
+#           b   d     e   f
+# Utah    0.0 NaN   3.0 NaN
+# Ohio    3.0 NaN   6.0 NaN
+# Texas   6.0 NaN   9.0 NaN
+# Oregon  9.0 NaN  12.0 NaN
+```
+
+如果您想在列上进行广播，在行上进行匹配，则必须使用一种算术方法并指定在索引上进行匹配。例如：
+
+```python
+series3 = frame["d"]
+frame
+#           b     d     e
+# Utah    0.0   1.0   2.0
+# Ohio    3.0   4.0   5.0
+# Texas   6.0   7.0   8.0
+# Oregon  9.0  10.0  11.0
+series3
+# Utah       1.0
+# Ohio       4.0
+# Texas      7.0
+# Oregon    10.0
+# Name: d, dtype: float64
+frame.sub(series3, axis="index")
+#           b    d    e
+# Utah   -1.0  0.0  1.0
+# Ohio   -1.0  0.0  1.0
+# Texas  -1.0  0.0  1.0
+# Oregon -1.0  0.0  1.0
+```
+
+用 `axis` 参数传递要匹配的轴。在本例中，匹配了 DataFrame 的行索引 (`axis="index"`) 并跨列广播。
+
+#### 函数应用与映射
+
+NumPy ufuncs（逐元素数组方法）也适用于 pandas 对象：
+
+```python
+frame = pd.DataFrame(np.random.standard_normal((4, 3)),
+                     columns=list("bde"),
+                     index=["Utah", "Ohio", "Texas", "Oregon"])
+frame
+#                b         d         e
+# Utah   -0.204708  0.478943 -0.519439
+# Ohio   -0.555730  1.965781  1.393406
+# Texas   0.092908  0.281746  0.769023
+# Oregon  1.246435  1.007189 -1.296221
+np.abs(frame)
+#                b         d         e
+# Utah    0.204708  0.478943  0.519439
+# Ohio    0.555730  1.965781  1.393406
+# Texas   0.092908  0.281746  0.769023
+# Oregon  1.246435  1.007189  1.296221
+```
+
+另一种常见的操作是将一维数组上的函数应用于每一列或行。 DataFrame 的 `apply` 方法正是这样做的：
+
+```python
+def f1(x):
+    return x.max() - x.min()
+frame.apply(f1)
+# b    1.802165
+# d    1.684034
+# e    2.689627
+# dtype: float64
+```
+
+函数 `f` 计算 Series 的最大值和最小值之间的差，在框架中的每一列上调用一次。结果是一个以 `frame` 列作为索引的 Series。
+
+如果传递 `axis="columns"` 来应用，则该函数将每行调用一次。思考这个问题的一个有用方法是 “跨列应用”：
+
+```python
+frame.apply(f1, axis="columns")
+# Utah      0.998382
+# Ohio      2.521511
+# Texas     0.676115
+# Oregon    2.542656
+# dtype: float64
+```
+
+许多最常见的数组统计数据（例如 `sum` 和 `mean`）都是 DataFrame 方法，因此没有必要使用 `apply`。
+
+传递给 `apply` 的函数不仅可以返回标量值；还可以返回具有多个值的 Series：
+
+```python
+def f2(x):
+    return pd.Series([x.min(), x.max()], index=["min", "max"])
+frame.apply(f2)
+#             b         d         e
+# min -0.555730  0.281746 -1.296221
+# max  1.246435  1.965781  1.393406
+```
+
+也可以使用逐元素 Python 函数。假设你想根据 `frame` 中的每个浮点值计算格式化字符串。可以使用 `applymap` 执行此操作：
+
+```python
+def my_format(x):
+    return f"{x:.2f}"
+frame.applymap(my_format)
+#             b     d      e
+# Utah    -0.20  0.48  -0.52
+# Ohio    -0.56  1.97   1.39
+# Texas    0.09  0.28   0.77
+# Oregon   1.25  1.01  -1.30
+```
+
+名称 `applymap` 的原因是 Series 有一个用于应用逐元素函数的 `map` 方法：
+
+```python
+frame["e"].map(my_format)
+# Utah      -0.52
+# Ohio       1.39
+# Texas      0.77
+# Oregon    -1.30
+# Name: e, dtype: object
+```
+
+#### 排序和排名
+
+按某种标准对数据集进行排序是另一个重要的内置操作。要按行或列标签按字典顺序排序，请使用 `sort_index` 方法，该方法返回一个新的排序对象：
+
+```python
+obj = pd.Series(np.arange(4), index=["d", "a", "b", "c"])
+obj
+# d    0
+# a    1
+# b    2
+# c    3
+# dtype: int64
+obj.sort_index()
+# a    1
+# b    2
+# c    3
+# d    0
+# dtype: int64
+```
+
+使用 DataFrame，可以按任一轴上的索引进行排序：
+
+```python
+frame = pd.DataFrame(np.arange(8).reshape((2, 4)),
+                     index=["three", "one"],
+                     columns=["d", "a", "b", "c"])
+frame
+#        d  a  b  c
+# three  0  1  2  3
+# one    4  5  6  7
+frame.sort_index()
+#        d  a  b  c
+# one    4  5  6  7
+# three  0  1  2  3
+frame.sort_index(axis="columns")
+#        a  b  c  d
+# three  1  2  3  0
+# one    5  6  7  4
+```
+
+数据默认按升序排序，但也可以按降序排序：
+
+```python
+frame.sort_index(axis="columns", ascending=False)
+#        d  c  b  a
+# three  0  3  2  1
+# one    4  7  6  5
+```
+
+要按 Series 值对系列进行排序，请使用其 `sort_values` 方法：
+
+```python
+obj = pd.Series([4, 7, -3, 2])
+obj.sort_values()
+# 2   -3
+# 3    2
+# 0    4
+# 1    7
+# dtype: int64
+```
+
+默认情况下，所有缺失值都会排序到 Series 末尾：
+
+```python
+obj = pd.Series([4, np.nan, 7, np.nan, -3, 2])
+obj.sort_values()
+# 4   -3.0
+# 5    2.0
+# 0    4.0
+# 2    7.0
+# 1    NaN
+# 3    NaN
+# dtype: float64
+```
+
+可以使用 `na_position` 选项将缺失值排序到开头：
+
+```python
+obj.sort_values(na_position="first")
+# 1    NaN
+# 3    NaN
+# 4   -3.0
+# 5    2.0
+# 0    4.0
+# 2    7.0
+# dtype: float64
+```
+
+对 DataFrame 进行排序时，可以使用一列或多列中的数据作为排序键。为此，请将一个或多个列名称传递给 `sort_values`：
+
+```python
+frame = pd.DataFrame({"b": [4, 7, -3, 2], "a": [0, 1, 0, 1]})
+frame
+#    b  a
+# 0  4  0
+# 1  7  1
+# 2 -3  0
+# 3  2  1
+frame.sort_values("b")
+#    b  a
+# 2 -3  0
+# 3  2  1
+# 0  4  0
+# 1  7  1
+frame.sort_values(["a", "b"])
+#    b  a
+# 2 -3  0
+# 0  4  0
+# 3  2  1
+# 1  7  1
+```
+
+排名从最低值开始，从 1 到数组中有效数据点的数量分配排名。Series 和 DataFrame 的排名方法是值得关注的地方；默认情况下，排名通过为每个组分配平均排名来打破平局：
+
+```python
+obj = pd.Series([7, -5, 7, 4, 2, 0, 4])
+obj.rank()
+# 0    6.5 # 两个 7 占据了第 6 第 7 名，这里分配均值 6.5 作为最终排名
+# 1    1.0
+# 2    6.5
+# 3    4.5
+# 4    3.0
+# 5    2.0
+# 6    4.5
+# dtype: float64
+obj.rank(method="first")
+# 0    6.0 # 两个 7 中先出现的是第 6，后出现的是第 7
+# 1    1.0
+# 2    7.0
+# 3    4.0
+# 4    3.0
+# 5    2.0
+# 6    5.0
+# dtype: float64
+obj.rank(ascending=False)
+# 0    1.5
+# 1    7.0
+# 2    1.5
+# 3    3.5
+# 4    5.0
+# 5    6.0
+# 6    3.5
+# dtype: float64
+```
+
+DataFrame 也可以计算行或列的排名：
+
+```python
+frame = pd.DataFrame({"b": [4.3, 7, -3, 2], "a": [0, 1, 0, 1],
+                      "c": [-2, 5, 8, -2.5]})
+frame
+#      b  a    c
+# 0  4.3  0 -2.0
+# 1  7.0  1  5.0
+# 2 -3.0  0  8.0
+# 3  2.0  1 -2.5
+frame.rank(axis="columns")
+#      b    a    c
+# 0  3.0  2.0  1.0
+# 1  3.0  1.0  2.0
+# 2  1.0  2.0  3.0
+# 3  3.0  2.0  1.0
+```
+
+排名时打破平级的方法如下表。
+
+| 方法 (Method) | 说明 (Description)                                           |
+| :------------ | :----------------------------------------------------------- |
+| `'average'`   | 默认值：为相等分组中的每个条目分配平均排名。                 |
+| `'min'`       | 对整个分组使用最小排名。                                     |
+| `'max'`       | 对整个分组使用最大排名。                                     |
+| `'first'`     | 按照值在数据中出现的顺序分配排名。                           |
+| `'dense'`     | 类似于 `'min'`，但组与组之间的排名总是增加 1，而不是增加相等元素的数量。 |
+
+#### 具有重复标签的轴索引
+
+到目前为止，我们看过的几乎所有示例都有唯一的轴标签（索引值）。虽然许多 pandas 函数（如 `reindex`）要求标签是唯一的，但这不是强制性的。让我们考虑一个具有重复索引的小 Series：
+
+```python
+obj = pd.Series(np.arange(5), index=["a", "a", "b", "b", "c"])
+obj
+# a    0
+# a    1
+# b    2
+# b    3
+# c    4
+# dtype: int64
+obj.index.is_unique
+# False
+```
+
+有重复项出现时，数据选择的行为会变得不一样。对具有多个条目的标签进行索引会返回一个 Series，而单个条目则返回一个标量值：
+
+```python
+obj["a"]
+# a    0
+# a    1
+# dtype: int64
+obj["c"]
+# 4
+```
+
+这可能会使您的代码更加复杂，因为索引的输出类型可能会根据标签是否重复而有所不同。
+
+相同的逻辑扩展到 DataFrame 中的索引行（或列）：
+
+```python
+df = pd.DataFrame(np.random.standard_normal((5, 3)),
+                  index=["a", "a", "b", "b", "c"])
+df
+#           0         1         2
+# a  0.274992  0.228913  1.352917
+# a  0.886429 -2.001637 -0.371843
+# b  1.669025 -0.438570 -0.539741
+# b  0.476985  3.248944 -1.021228
+# c -0.577087  0.124121  0.302614
+df.loc["b"]
+#           0         1         2
+# b  1.669025 -0.438570 -0.539741
+# b  0.476985  3.248944 -1.021228
+df.loc["c"]
+# 0   -0.577087
+# 1    0.124121
+# 2    0.302614
+# Name: c, dtype: float64
+```
+
+## 5.3 总结和计算描述性统计
+
+pandas 对象配备了一套常见的数学和统计方法。其中大多数属于归约或汇总统计的类别，从 Series 中提取单个值（如总和或平均值）的方法，或从 DataFrame 的行或列中提取一系列值的方法。与 NumPy 数组上的类似方法相比，它们具有针对丢失数据的内置处理。考虑一个小的 DataFrame：
+
+```python
+df = pd.DataFrame([[1.4, np.nan], [7.1, -4.5],
+                   [np.nan, np.nan], [0.75, -1.3]],
+                  index=["a", "b", "c", "d"],
+                  columns=["one", "two"])
+df
+#     one  two
+# a  1.40  NaN
+# b  7.10 -4.5
+# c   NaN  NaN
+# d  0.75 -1.3
+df.sum()
+# one    9.25
+# two   -5.80
+# dtype: float64
+df.sum(axis="columns")
+# a    1.40
+# b    2.60
+# c    0.00
+# d   -0.55
+# dtype: float64
+
+通过控制 skipna 标志，决定对 NA 值的处理，是直接跳过还是传播 NA
+---
+df.sum(axis="index", skipna=False)
+# one   NaN
+# two   NaN
+# dtype: float64
+df.sum(axis="columns", skipna=False)
+# a     NaN
+# b    2.60
+# c     NaN
+# d   -0.55
+# dtype: float64
+```
+
+一些聚合（例如平均值）需要至少一个非 NA 值才能产生值结果，因此这里我们有：
+
+```python
+df.mean(axis="columns")
+# a    1.400
+# b    1.300
+# c      NaN
+# d   -0.275
+# dtype: float64
+```
+
+别的参数还包括
+
+| Method   | Description                                      |
+| :------- | :----------------------------------------------- |
+| `axis`   | 要计算的轴                                       |
+| `skipna` | 是否跳过缺失值。默认是 `True`                    |
+| `level`  | 在指定层级计算，如果轴是分层索引的（MultiIndex） |
+
+某些方法（例如 `idxmin` 和 `idxmax`）返回间接统计信息，例如达到最小值或最大值的索引值：
+
+```python
+df.idxmax()
+# one    b
+# two    d
+# dtype: object
+df.cumsum()
+#     one  two
+# a  1.40  NaN
+# b  8.50 -4.5
+# c   NaN  NaN
+# d  9.25 -5.8
+```
+
+有些方法既不是减法，也不是累加。`describe` 就是这样一个例子，一次性生成多个汇总统计数据：
+
+```python
+df.describe()
+#             one       two
+# count  3.000000  2.000000
+# mean   3.083333 -2.900000
+# std    3.493685  2.262742
+# min    0.750000 -4.500000
+# 25%    1.075000 -3.700000
+# 50%    1.400000 -2.900000
+# 75%    4.250000 -2.100000
+# max    7.100000 -1.300000
+```
+
+对于非数字数据，`describe` 会生成替代的汇总统计数据：
+
+```python
+obj = pd.Series(["a", "a", "b", "c"] * 4)
+obj.describe()
+# count     16
+# unique     3
+# top        a
+# freq       8
+# dtype: object
+```
+
+有关汇总统计数据和相关方法的完整列表，请参阅下表。
+
+| Method             | Description                                             |
+| :----------------- | :------------------------------------------------------ |
+| `count`            | 非 NA（非缺失）值的数量。                               |
+| `describe`         | 计算 Series 或 DataFrame 各列的汇总统计信息集合。       |
+| `min`, `max`       | 计算最小值和最大值。                                    |
+| `argmin`, `argmax` | 计算最小值或最大值所在的整数索引位置（integers）。      |
+| `idxmin`, `idxmax` | 计算最小值或最大值所在的索引标签（labels）。            |
+| `quantile`         | 计算样本的分位数（0 到 1 之间）。                       |
+| `sum`              | 值的总和。                                              |
+| `mean`             | 值的平均数。                                            |
+| `median`           | 值的算术中位数（50% 分位数）。                          |
+| `mad`              | 根据平均值计算平均绝对偏差（Mean absolute deviation）。 |
+| `prod`             | 所有值的乘积。                                          |
+| `var`              | 值的样本方差。                                          |
+| `std`              | 值的样本标准差。                                        |
+| `skew`             | 值的样本偏度（三阶矩）。                                |
+| `kurt`             | 值的样本峰度（四阶矩）。                                |
+| `cumsum`           | 值的累计和。                                            |
+| `cummin`, `cummax` | 值的累计最小值或累计最大值。                            |
+| `cumprod`          | 值的累计乘积。                                          |
+| `diff`             | 计算一阶算术差分（对时间序列有用）。                    |
+| `pct_change`       | 计算百分比变化。                                        |
+
+#### 相关性和协方差
+
+有一些统计指标（比如相关系数和协方差）是通过成对的数据计算出来的。来看几个股票价格和成交量的 DataFrame 例子，这些数据最初是从雅虎财经（Yahoo! Finance）获取的。作者已经把它们存成了 Python 特有的二进制文件（pickle 格式），你可以在本书配套的数据集里找到它们：
+
+```python
+price = pd.read_pickle("examples/yahoo_price.pkl")
+volume = pd.read_pickle("examples/yahoo_volume.pkl")
+```
+
+现在计算价格的百分比变化，这是一种时间序列运算，将在第 11 章：时间序列中进一步探讨：
+
+```python
+returns = price.pct_change()
+returns.tail()
+#                 AAPL      GOOG       IBM      MSFT
+# Date                                              
+# 2016-10-17 -0.000680  0.001837  0.002072 -0.003483
+# 2016-10-18 -0.000681  0.019616 -0.026168  0.007690
+# 2016-10-19 -0.002979  0.007846  0.003583 -0.002255
+# 2016-10-20 -0.000512 -0.005652  0.001719 -0.004867
+# 2016-10-21 -0.003930  0.003011 -0.012474  0.042096
+```
+
+Series 的 `corr` 方法计算两个 Series 中重叠的、非 NA 的、按索引对齐的值的相关性。相关地，`cov` 计算协方差：
+
+```python
+returns["MSFT"].corr(returns["IBM"])
+# 0.49976361144151166
+returns["MSFT"].cov(returns["IBM"])
+# 8.870655479703549e-05
+```
+
+另一方面，DataFrame 的 `corr` 和 `cov` 方法分别返回完整的相关或协方差矩阵作为 DataFrame：
+
+```python
+returns.corr()
+#           AAPL      GOOG       IBM      MSFT
+# AAPL  1.000000  0.407919  0.386817  0.389695
+# GOOG  0.407919  1.000000  0.405099  0.465919
+# IBM   0.386817  0.405099  1.000000  0.499764
+# MSFT  0.389695  0.465919  0.499764  1.000000
+returns.cov()
+#           AAPL      GOOG       IBM      MSFT
+# AAPL  0.000277  0.000107  0.000078  0.000095
+# GOOG  0.000107  0.000251  0.000078  0.000108
+# IBM   0.000078  0.000078  0.000146  0.000089
+# MSFT  0.000095  0.000108  0.000089  0.000215
+```
+
+使用 DataFrame 的 `corrwith` 方法可以计算 DataFrame 的列或行与另一个 Series 或 DataFrame 之间的成对相关性。
+
+传递 Series 返回一个 Series，其中包含为每列计算的相关值：
+
+```python
+returns.corrwith(returns["IBM"])
+# AAPL    0.386817
+# GOOG    0.405099
+# IBM     1.000000
+# MSFT    0.499764
+# dtype: float64
+```
+
+传递 DataFrame 会计算匹配列名称的相关性。在这里，我计算百分比变化与交易量的相关性：
+
+```python
+returns.corrwith(volume)
+# AAPL   -0.075565
+# GOOG   -0.007067
+# IBM    -0.204849
+# MSFT   -0.092950
+# dtype: float64
+```
+
+传递 `axis="columns"` 会逐行执行操作。在所有情况下，在计算相关性之前，数据点都会按标签对齐。
+
+#### 唯一值、值计数和成员关系
+
+另一类相关方法提取有关一维 Series 中包含的值的信息。为了说明这些，请考虑以下示例：
+
+```python
+obj = pd.Series(["c", "a", "d", "a", "a", "b", "b", "c", "c"])
+uniques = obj.unique()
+uniques
+# array(['c', 'a', 'd', 'b'], dtype=object)
+```
+
+第一个函数是 `unique`，它为你提供 Series 中唯一值的数组。
+
+唯一值不一定按它们首次出现的顺序返回，也不是按排序顺序返回，但如果需要，可以在事后对它们进行排序 (`uniques.sort()`)。相关地， `value_counts` 计算包含值频率的 Series：
+
+```python
+obj.value_counts()
+# c    3
+# a    3
+# b    2
+# d    1
+# Name: count, dtype: int64
+```
+
+为了方便起见，该系列按值降序排列。 `value_counts` 也可用作顶级 pandas 方法，可与 NumPy 数组或其他 Python 序列一起使用：
+
+```python
+pd.value_counts(obj.to_numpy(), sort=False)
+# c    3
+# a    3
+# d    1
+# b    2
+# Name: count, dtype: int64
+```
+
+`isin` 执行向量化集成员关系检查，可用于将数据集过滤为 DataFrame 中的 Series 或列中的值的子集：
+
+```python
+obj
+# 0    c
+# 1    a
+# 2    d
+# 3    a
+# 4    a
+# 5    b
+# 6    b
+# 7    c
+# 8    c
+# dtype: object
+mask = obj.isin(["b", "c"])
+mask
+# 0     True
+# 1    False
+# 2    False
+# 3    False
+# 4    False
+# 5     True
+# 6     True
+# 7     True
+# 8     True
+# dtype: bool
+obj[mask]
+# 0    c
+# 5    b
+# 6    b
+# 7    c
+# 8    c
+# dtype: object
+```
+
+与 `isin` 相关的是 `Index.get_indexer` 方法，它提供一个索引数组，每个索引代表了当前元素在目标集合的位置：
+
+```python
+to_match = pd.Series(["c", "a", "b", "b", "c", "a"])
+unique_vals = pd.Series(["c", "b", "a"])
+indices = pd.Index(unique_vals).get_indexer(to_match)
+indices
+# array([0, 2, 1, 1, 0, 2])
+```
+
+有关这些方法的参考，请参阅下表。
+
+| Method         | Description                                                  |
+| :------------- | :----------------------------------------------------------- |
+| `isin`         | 计算一个布尔数组，指示每个 Series 或 DataFrame 值是否包含在传递的值序列中 |
+| `get_indexer`  | 将数组中每个值的整数索引计算到另一个不同值的数组中；有助于数据对齐和连接类型操作 |
+| `unique`       | 计算 Series 中唯一值的数组，按观察到的顺序返回               |
+| `value_counts` | 返回一个包含唯一值作为其索引和频率作为其值的系列，按降序排列计数 |
+
+在某些情况下，您可能需要计算 DataFrame 中多个相关列的直方图。这是一个例子：
+
+```python
+data = pd.DataFrame({"Qu1": [1, 3, 4, 3, 4],
+                     "Qu2": [2, 3, 1, 2, 3],
+                     "Qu3": [1, 5, 2, 4, 4]})
+data
+#    Qu1  Qu2  Qu3
+# 0    1    2    1
+# 1    3    3    5
+# 2    4    1    2
+# 3    3    2    4
+# 4    4    3    4
+```
+
+我们可以计算单个列的值计数，如下所示：
+
+```python
+data["Qu1"].value_counts().sort_index()
+# Qu1
+# 1    1
+# 3    2
+# 4    2
+# Name: count, dtype: int64
+```
+
+要计算所有列的值，请将 `pandas.value_counts` 传递给 DataFrame 的 `apply` 方法：
+
+```python
+result = data.apply(pd.value_counts).fillna(0)
+result
+#    Qu1  Qu2  Qu3
+# 1  1.0  1.0  1.0
+# 2  0.0  2.0  1.0
+# 3  2.0  2.0  0.0
+# 4  2.0  0.0  2.0
+# 5  0.0  0.0  1.0
+```
+
+结果中的行标签是所有列中出现的不同值。这些值是每列中这些值的相应计数。
+
+还有一个 `DataFrame.value_counts` 方法，但它将 DataFrame 的每一行视为一个元组来计算计数，以确定每个不同行的出现次数：
+
+```python
+data = pd.DataFrame({"a": [1, 1, 1, 2, 2], "b": [0, 0, 1, 0, 0]})
+data
+#    a  b
+# 0  1  0
+# 1  1  0
+# 2  1  1
+# 3  2  0
+# 4  2  0
+data.value_counts()
+# a  b
+# 1  0    2
+# 2  0    2
+# 1  1    1
+# Name: count, dtype: int64
+```
+
+在这种情况下，结果有一个索引，将不同的行表示为分层索引，我们将在第 8 章：数据整理：联接、组合和重塑中更详细地探讨该主题。

@@ -5,6 +5,10 @@ date: 2025-12-30 09:02:08 +0000
 tags: [Python, Data Analysis, 阅读笔记]
 ---
 
+**更新**：感觉像第 4 章、第 5 章那样基本直接翻译原书，没啥意义，LC 上遇到题还是睁眼瞎，不如只记录常用 API，然后多实践，不会用 API 再去翻原书或者 Ref。
+
+---
+
 官方在线版：https://wesmckinney.com/book/
 
 ## 各章节内容
@@ -2501,3 +2505,533 @@ data.value_counts()
 ```
 
 在这种情况下，结果有一个索引，将不同的行表示为分层索引，我们将在第 8 章：数据整理：联接、组合和重塑中更详细地探讨该主题。
+
+## 第 6 章：数据加载、存储和文件格式
+
+加载数据是使用书中大多数工具的必要的第一步。
+
+pandas 具有许多用于将表格数据读取为 DataFrame 对象的函数。下表总结了其中一些； `pandas.read_csv` 是最常用的之一。
+
+| 函数             | 描述                                                         |
+| :--------------- | :----------------------------------------------------------- |
+| `read_csv`       | 从文件、URL 或文件型对象（file-like object）读取分隔数据；默认使用逗号作为分隔符。 |
+| `read_table`     | 从文件、URL 或文件型对象读取分隔数据；默认使用制表符 (`'\t'`) 作为分隔符。 |
+| `read_fwf`       | 读取固定宽度列格式（fixed-width column format）的数据（即没有分隔符）。 |
+| `read_clipboard` | `read_table` 的剪贴板版本，用于从系统剪贴板读取数据；在将网页中的表格转换为数据时非常有用。 |
+| `read_excel`     | 从 Excel XLS 或 XLSX 文件读取表格数据。                      |
+| `read_hdf`       | 读取由 pandas 编写的 HDF5 文件。                             |
+| `read_html`      | 读取给定 HTML 文档中发现的所有表格。                         |
+| `read_json`      | 从 JSON（JavaScript 对象表示法）字符串表示、文件、URL 或文件型对象读取数据。 |
+| `read_feather`   | 读取 Feather 二进制文件格式。                                |
+| `read_parquet`   | 读取 Apache Parquet 二进制文件格式。                         |
+| `read_orc`       | 读取 Apache ORC 二进制文件格式。                             |
+| `read_pickle`    | 读取以 Python pickle 格式存储的任意对象。                    |
+| `read_sas`       | 读取存储为 SAS 自定义存储格式之一的 SAS 数据集。             |
+| `read_spss`      | 读取由 SPSS 创建的数据文件。                                 |
+| `read_sql`       | 将 SQL 查询的结果（使用 SQLAlchemy）读取为 pandas DataFrame。 |
+| `read_stata`     | 读取 Stata 文件格式的数据集。                                |
+| `read_xml`       | 读取 XML 文档。                                              |
+
+这些函数提供了非常丰富的的可选参数，像是最常用 `read_csv` 有 50 多个可选参数，在不知道怎么按照自己想要的方式读取文件时，建议参考 pandas 官方在线文档或者咨询 AI。
+
+## 第 7 章：数据清洗与准备
+
+在进行数据分析和建模的过程中，分析师 80% 或更多的时间花费在数据准备上：加载、清洗、转换和重新排列。
+
+这章将讨论用于丢失数据、重复数据、字符串操作和其他一些分析数据转换的工具。
+
+### 7.1 处理缺失值
+
+pandas 采用了 R 编程语言中使用的约定，将缺失数据称为 NA，代表不可用（Not Available）。
+
+在统计应用中，NA 数据可能是不存在的数据，也可能是存在但未被观察到的数据（例如，由于数据收集问题）。
+
+在清理数据进行分析时，对缺失数据本身进行分析通常很重要，以识别数据收集问题或由缺失数据引起的数据潜在偏差。
+
+pandas 提供了一些用于处理缺失值的方法，如下表。
+
+| Method    | Description                                                  |
+| :-------- | :----------------------------------------------------------- |
+| `dropna`  | 根据数值是否存在缺失来过滤轴标签，并且可以针对允许缺失的数据量设定不同的阈值。 |
+| `fillna`  | 使用指定的值或插值方法（例如 `'ffill'` 或 `'bfill'`）来填充缺失数据。 |
+| `isnull`  | 返回一个含有布尔值的对象，这些布尔值表示哪些值是缺失值 / NA。 |
+| `notnull` | `isnull` 的否定形式（即：如果值不缺失，返回 True）。         |
+
+### 7.2 转换数据
+
+pandas 提供了一些用于数值转换的方法，如下表。
+
+| Method            | Description                                                  |
+| ----------------- | ------------------------------------------------------------ |
+| `drop_duplicates` | 删除重复值，默认保留第一个不重复的值。                       |
+| `map`             | 根据传入的字典或者方法，将已有的值映射为新的值。也可以用在轴的重命名上。 |
+| `replace`         | 把表中指定值统一替换成新值                                   |
+| `cut`             | 根据传入的 list，或者要期望的分箱数量，返回一个 Categorical 对象，用于对数据做后续的分箱操作 |
+| `qcut`            | 不同于 `cut` 的按区间等宽划分，这个方法会按照样本等频划分，保证每个区间的样本数量基本一致 |
+| `describe`        | 描述当前表的统计信息，包括计数、均值、标准差、分位数等       |
+| `sample`          | 随机采样（默认不放回）                                       |
+| `get_dummies`     | 把分类变量转换成数值矩阵（默认布尔矩阵），一般用在机器学习场景的独热编码 |
+
+### 7.3 扩展数据类型
+
+pandas 开发了一个扩展类型系统，允许添加新的数据类型，即使 NumPy 本身不支持它们。
+
+这些新数据类型可以与来自 NumPy 数组的数据一起视为同级的数据类型。
+
+
+
+| Extension Type                        | Description                                                  | Type Code / Alias                             |
+| :------------------------------------ | :----------------------------------------------------------- | :-------------------------------------------- |
+| `CategoricalDtype`                    | Categorical data (分类型数据/类别数据)                       | `'category'`                                  |
+| `Int64`, `Int32`, `Int16`, `Int8`     | Nullable signed integer types (支持缺失值的有符号整数类型)   | `'Int64'`, `'Int32'`, `'Int16'`, `'Int8'`     |
+| `UInt64`, `UInt32`, `UInt16`, `UInt8` | Nullable unsigned integer types (支持缺失值的无符号整数类型) | `'UInt64'`, `'UInt32'`, `'UInt16'`, `'UInt8'` |
+| `Float64`, `Float32`                  | Nullable floating-point types (支持缺失值的浮点类型，主要用于与整数类型保持一致) | `'Float64'`, `'Float32'`                      |
+| `StringDtype`                         | Dedicated string type (专用字符串类型，解决了 object 类型的性能和混合类型问题) | `'string'`                                    |
+| `BooleanDtype`                        | Nullable boolean type (支持缺失值的布尔类型)                 | `'boolean'`                                   |
+| `DatetimeTZDtype`                     | Time zone aware datetime (带时区信息的日期时间类型)          | `'datetime64[ns, <tz>]'`                      |
+| `PeriodDtype`                         | Time spans / periods (时间段/周期类型)                       | `'period[<freq>]'`                            |
+| `IntervalDtype`                       | Intervals (区间类型)                                         | `'interval'`                                  |
+
+这些扩展数据类型主要有以下好处：
+
+*   支持缺失值 (Nullable)：传统的 NumPy 整数和布尔数组不支持 `NaN`（缺失值），如果你在整数列中引入 `NaN`，它会被强制转换为浮点数（float）。Pandas 的扩展类型（如 `Int64` 和 `boolean`）使用专门的 `pd.NA` 来表示缺失值，从而保持数据原本的整数或布尔性质。
+*   专用字符串 (`string`)：传统上 pandas 使用 `object` 类型存储字符串，这效率较低且容易混入非字符串对象。`StringDtype` 是专门为文本数据设计的。
+
+需要注意扩展类型是大小写敏感的，像 `'Int64'` 这样的类型别名是大写的，这与 NumPy 的 `'int64'`（全小写，不支持原生缺失值）是区分开的。
+
+### 7.4 字符串操作
+
+Python 长期以来一直是一种流行的原始数据操作语言，部分原因是它易于用于字符串和文本处理。使用字符串对象的内置方法可以使大多数文本操作变得简单。对于更复杂的模式匹配和文本操作，可能需要正则表达式。 pandas 使您能够在整个数据数组上简洁地应用字符串和正则表达式，此外还可以处理缺失数据。
+
+#### Python 内置的字符串操作
+
+| Method                      | Description                                                  |
+| :-------------------------- | :----------------------------------------------------------- |
+| `count`                     | 返回子串在字符串中非重叠出现的次数。                         |
+| `endswith`                  | 如果字符串以指定后缀结尾，则返回 True。                      |
+| `startswith`                | 如果字符串以指定前缀开头，则返回 True。                      |
+| `join`                      | 将字符串作为分隔符，用于连接其他字符串序列。                 |
+| `index`                     | 如果在字符串中找到子串，则返回子串第一个字符的位置。如果未找到，则引发 ValueError 异常。 |
+| `find`                      | 如果在字符串中找到子串，则返回子串第一个字符的位置。类似于 index，但如果未找到则返回 -1。 |
+| `rfind`                     | 如果在字符串中找到子串，则返回子串第一个字符的位置。类似于 find，但从字符串末尾开始搜索。 |
+| `replace`                   | 将指定子串的所有出现替换为另一个字符串。                     |
+| `strip`, `rstrip`, `lstrip` | 去除空白字符（包括换行符）；rstrip 从右侧去除，lstrip 从左侧去除。 |
+| `split`                     | 使用指定分隔符将字符串拆分为子串列表。                       |
+| `lower`                     | 将字母字符转换为小写。                                       |
+| `upper`                     | 将字母字符转换为大写。                                       |
+| `casefold`                  | 将字符转换为小写，常用于不区分大小写的匹配（比 lower 更彻底，例如处理德语字符 'ß'）。 |
+| `ljust`, `rjust`            | 左对齐或右对齐；使用空格（或指定字符）将字符串填充至指定宽度。 |
+
+#### 正则表达式
+
+| Method        | Description                                                  |
+| :------------ | :----------------------------------------------------------- |
+| `findall`     | 将字符串中所有的非重叠匹配项作为列表返回。                   |
+| `finditer`    | 与 `findall` 类似，但返回的是一个迭代器。                    |
+| `match`       | 从字符串的起始位置匹配模式，并可选择将模式组件分段成组；如果匹配成功，返回一个匹配对象，否则返回 `None`。 |
+| `search`      | 扫描字符串以查找匹配模式；如果找到则返回一个匹配对象。与 `match` 不同，`search` 可以在字符串的任意位置匹配，而不仅仅是开头。 |
+| `split`       | 根据模式出现的每一处将字符串拆分为片段。                     |
+| `sub`, `subn` | 将字符串中出现的所有模式替换为指定内容（`subn` 还会返回替换发生的次数）。 |
+
+#### pandas 的字符串操作
+
+| 方法 (Method)               | 描述 (Description)                                           |
+| :-------------------------- | :----------------------------------------------------------- |
+| `cat`                       | 实现元素级的字符串连接，可指定分隔符 (delimiter)。           |
+| `contains`                  | 返回布尔数组，表示每个字符串是否包含指定的模式 (pattern) 或正则表达式。 |
+| `count`                     | 统计模式 (pattern) 出现的次数。                              |
+| `extract`                   | 使用正则表达式的分组捕获功能，从字符串中提取一个或多个子字符串；结果通常为 DataFrame。 |
+| `endswith`                  | 对每个元素执行 `x.endswith(pattern)`（检查是否以指定模式结尾）。 |
+| `startswith`                | 对每个元素执行 `x.startswith(pattern)`（检查是否以指定模式开头）。 |
+| `findall`                   | 计算每个字符串中所有匹配该模式/正则表达式的列表。            |
+| `get`                       | 获取各元素中第 `i` 个字符（索引访问）。                      |
+| `isalnum`                   | 等同于内置的 `str.isalnum`（检查是否全为字母或数字）。       |
+| `isalpha`                   | 等同于内置的 `str.isalpha`（检查是否全为字母）。             |
+| `isdecimal`                 | 等同于内置的 `str.isdecimal`（检查是否全为十进制数字）。     |
+| `isdigit`                   | 等同于内置的 `str.isdigit`（检查是否全为数字）。             |
+| `islower`                   | 等同于内置的 `str.islower`（检查是否全为小写）。             |
+| `isnumeric`                 | 等同于内置的 `str.isnumeric`（检查是否全为数值字符）。       |
+| `isupper`                   | 等同于内置的 `str.isupper`（检查是否全为大写）。             |
+| `join`                      | 根据指定的分隔符，将 Series 中每个元素的字符串连接起来。     |
+| `len`                       | 计算每个字符串的长度。                                       |
+| `lower`, `upper`            | 转换大小写；分别等同于 `x.lower()` 和 `x.upper()`。          |
+| `match`                     | 根据指定的正则表达式对每个元素执行 `re.match`，返回匹配的分组列表或布尔值。 |
+| `pad`                       | 在字符串的左侧、右侧或两侧添加空白符。                       |
+| `center`                    | 等同于 `pad(side='both')`，将字符串居中。                    |
+| `repeat`                    | 重复字符串值（例如 `s.str.repeat(3)`）。                     |
+| `replace`                   | 将匹配到的模式/正则表达式替换为其他字符串。                  |
+| `slice`                     | 对 Series 中的每个字符串进行切片操作。                       |
+| `split`                     | 根据分隔符或正则表达式将字符串拆分为列表。                   |
+| `strip`, `rstrip`, `lstrip` | 去除空白符（包括换行符）；分别为去除两端、右端或左端的空白。 |
+
+**补充说明：**
+
+*   这些方法通过 Pandas Series 的 `.str` 属性调用（例如 `data.str.contains('gmail')`）。
+*   它们会自动处理缺失值（NA/NaN），这是相比于 Python 原生循环处理的一大优势。
+*   大部分接受 `pattern` 参数的方法默认支持正则表达式（RegEx）。
+
+### 7.5 数据分类（Categorical）
+
+在 Pandas 中，`Categorical` 是一种专门用于处理类别型变量（Categorical variables）的数据类型。它在统计学中对应那些取值范围有限且通常固定的变量。
+
+`Categorical` 主要解决以下三个问题：
+
+- 节省内存：如果一个字符串列包含大量重复值（如“男/女”、“省份”），使用 `category` 类型会比 `object`（字符串）类型节省大量空间。它内部使用整数（codes）来存储数据，而将实际的字符串值（categories）只存储一份。
+- 逻辑排序（非字母表排序）：你可以定义类别的逻辑顺序。例如，“低”、“中”、“高”如果按字母排序是“高、低、中”，但定义为 `Categorical` 后，可以按“低 < 中 < 高”排序。
+- 性能优化：在进行分组（Groupby）、排序或某些字符串操作时，由于是对整数代码进行操作，速度通常比处理原始字符串快得多。
+
+`Categorical` 数据由两部分组成：
+
+1. Categories（类别）：唯一值的集合（如 `['A', 'B', 'C']`）。
+2. Codes（代码）：一个整数数组，记录每个位置对应哪个类别（如 `[0, 1, 0, 2]` 代表 `['A', 'B', 'A', 'C']`）。
+
+#### 创建 Categorical 对象
+
+你可以直接转换现有列，或手动创建。
+
+```python
+import pandas as pd
+import numpy as np
+
+# 方式 1：转换现有 Series
+df = pd.DataFrame({"fruit": ["apple", "banana", "apple", "apple"]})
+df["fruit"] = df["fruit"].astype("category")
+
+# 方式 2：手动创建并指定顺序
+s = pd.Series(["low", "high", "medium", "low"], dtype="category")
+s = s.cat.set_categories(["low", "medium", "high"], ordered=True)
+```
+
+#### 排序示例
+
+如果不使用 `category`，排序将按字母顺序。
+
+```python
+# 定义有顺序的类别
+levels = ["Junior", "Senior", "Manager"]
+df = pd.DataFrame({"rank": ["Manager", "Junior", "Senior", "Junior"]})
+
+# 转换为有序类别
+df["rank"] = pd.Categorical(df["rank"], categories=levels, ordered=True)
+
+# 排序时会遵循 Junior -> Senior -> Manager
+print(df.sort_values("rank"))
+```
+
+#### 使用 `.cat` 访问器
+
+类似于字符串的 `.str` 或日期的 `.dt`，类别型数据有专门的 `.cat` 属性来管理类别：
+
+- `df['col'].cat.categories`：查看所有类别。
+- `df['col'].cat.codes`：查看底层的整数代码。
+- `df['col'].cat.rename_categories([...])`：重命名类别名称。
+- `df['col'].cat.add_categories([...])`：添加新类别。
+
+#### 什么时候不该用
+
+- 高基数数据：如果一列中几乎每个值都是唯一的（如 ID、身份证号），转换为 `category` 反而会增加开销，因为它需要额外维护一份类别映射表。
+- 频繁修改值：如果你需要给这一列赋值一个“不在已有类别中”的新值，Pandas 会报错（必须先用 `add_categories` 添加该值）。
+
+这张表列出了可以通过 `series.cat` 访问的用于操作分类数据的方法。
+
+| Method                     | Description                                                  |
+| :------------------------- | :----------------------------------------------------------- |
+| `add_categories`           | 在现有类别的末尾追加新的（未使用的）类别。                   |
+| `remove_categories`        | 移除指定的类别；若数据中存在属于该类别的值，这些值将被设置为 null (NaN)。 |
+| `remove_unused_categories` | 移除数据中未出现（未使用）的类别。                           |
+| `rename_categories`        | 用指定的新名称替换类别（不改变类别的数量，只改变名称）。     |
+| `reorder_categories`       | 改变类别的顺序（不改变数据本身的顺序，只改变类别索引的逻辑顺序）。 |
+| `set_categories`           | 将类别替换为一组新的指定类别；此操作可以添加新类别，也可以移除旧类别（取决于新列表的内容）。 |
+| `as_ordered`               | 将分类数据设置为有序（Ordered）。                            |
+| `as_unordered`             | 将分类数据设置为无序（Unordered）。                          |
+
+## 第 8 章：数据规整：连接、合并与重塑
+
+在许多应用中，数据可能分布在多个文件或数据库中，或者以不便于分析的形式排列。本章重点介绍帮助组合、连接和重新排列数据的工具。
+
+### 8.1 分层索引
+
+分层索引是 pandas 的一个重要功能，它使你能够在一个轴上拥有多个（两个或更多）索引级别。
+
+另一种思考方式是，它提供了一种以较低维度形式处理较高维度数据的方法。
+
+让我们从一个简单的示例开始：创建一个以列表（或数组）列表作为索引的 Series：
+
+```python
+data = pd.Series(np.random.uniform(size=9),
+                 index=[["a", "a", "a", "b", "b", "c", "c", "d", "d"],
+                        [1, 2, 3, 1, 3, 1, 2, 2, 3]])
+data
+# a  1    0.929616
+#    2    0.316376
+#    3    0.183919
+# b  1    0.204560
+#    3    0.567725
+# c  1    0.595545
+#    2    0.964515
+# d  2    0.653177
+#    3    0.748907
+# dtype: float64
+```
+
+你看到的是一个以 `MultiIndex` 作为索引的系列的美化视图。索引显示中的 “间隙” 意味着 “使用正上方的标签”：
+
+```python
+data.index
+# MultiIndex([('a', 1),
+#             ('a', 2),
+#             ('a', 3),
+#             ('b', 1),
+#             ('b', 3),
+#             ('c', 1),
+#             ('c', 2),
+#             ('d', 2),
+#             ('d', 3)],
+#            )
+```
+
+使用分层索引对象，可以实现所谓的部分索引，使您能够简洁地选择数据子集：
+
+```python
+data["b"]
+# 1    0.204560
+# 3    0.567725
+# dtype: float64
+data["b":"c"]
+# b  1    0.204560
+#    3    0.567725
+# c  1    0.595545
+#    2    0.964515
+# dtype: float64
+data.loc[["b", "d"]]
+# b  1    0.204560
+#    3    0.567725
+# d  2    0.653177
+#    3    0.748907
+# dtype: float64
+```
+
+甚至可以从“内部”层面进行选择。这里我从第二个索引级别选择所有值为 2 的值：
+
+```python
+data.loc[:, 2]
+# a    0.316376
+# c    0.964515
+# d    0.653177
+# dtype: float64
+```
+
+分层索引在重塑数据和基于组的操作（例如形成数据透视表）中发挥着重要作用。例如，您可以使用其 `unstack` 方法将此数据重新排列到 DataFrame 中：
+
+```python
+data.unstack()
+#           1         2         3
+# a  0.929616  0.316376  0.183919
+# b  0.204560       NaN  0.567725
+# c  0.595545  0.964515       NaN
+# d       NaN  0.653177  0.748907
+```
+
+`unstack` 的逆操作是 `stack`：
+
+```python
+data.unstack().stack()
+# a  1    0.929616
+#    2    0.316376
+#    3    0.183919
+# b  1    0.204560
+#    3    0.567725
+# c  1    0.595545
+#    2    0.964515
+# d  2    0.653177
+#    3    0.748907
+# dtype: float64
+```
+
+对于 DataFrame，任一轴都可以有分层索引：
+
+```python
+frame = pd.DataFrame(np.arange(12).reshape((4, 3)),
+                     index=[["a", "a", "b", "b"], [1, 2, 1, 2]],
+                     columns=[["Ohio", "Ohio", "Colorado"],
+                              ["Green", "Red", "Green"]])
+frame
+#      Ohio     Colorado
+#     Green Red    Green
+# a 1     0   1        2
+#   2     3   4        5
+# b 1     6   7        8
+#   2     9  10       11
+```
+
+层次结构级别可以有名称（作为字符串或任何 Python 对象）。如果是这样，这些将显示在控制台输出中：
+
+```python
+frame.index.names = ["key1", "key2"]
+frame.columns.names = ["state", "color"]
+frame
+# state      Ohio     Colorado
+# color     Green Red    Green
+# key1 key2                   
+# a    1        0   1        2
+#      2        3   4        5
+# b    1        6   7        8
+#      2        9  10       11
+```
+
+通过部分列索引，你可以类似地选择列组：
+
+```python
+frame["Ohio"]
+# color      Green  Red
+# key1 key2            
+# a    1         0    1
+#      2         3    4
+# b    1         6    7
+#      2         9   10
+```
+
+有时，您可能需要重新排列轴上级别的顺序或按某一特定级别中的值对数据进行排序。 `swaplevel` 方法采用两个级别编号或名称，并返回一个级别互换的新对象（但数据未改变）：
+
+```python
+frame.swaplevel("key1", "key2")
+# state      Ohio     Colorado
+# color     Green Red    Green
+# key2 key1                   
+# 1    a        0   1        2
+# 2    a        3   4        5
+# 1    b        6   7        8
+# 2    b        9  10       11
+```
+
+`sort_index` 默认情况下使用所有索引级别按字典顺序对数据进行排序，但您可以通过传递 level 参数选择仅使用单个级别或级别的子集进行排序。例如：
+
+```python
+frame.sort_index(level=1)
+# state      Ohio     Colorado
+# color     Green Red    Green
+# key1 key2                   
+# a    1        0   1        2
+# b    1        6   7        8
+# a    2        3   4        5
+# b    2        9  10       11
+frame.swaplevel(0, 1).sort_index(level=0)
+# state      Ohio     Colorado
+# color     Green Red    Green
+# key2 key1                   
+# 1    a        0   1        2
+#      b        6   7        8
+# 2    a        3   4        5
+#      b        9  10       11
+```
+
+DataFrame 和 Series 上的许多描述性和摘要统计数据都有一个级别选项，您可以在其中指定要在特定轴上聚合的级别。考虑上面的 DataFrame；我们可以按行或列的级别进行聚合，如下所示：
+
+```python
+frame.groupby(level="key2").sum()
+# state  Ohio     Colorado
+# color Green Red    Green
+# key2                    
+# 1         6   8       10
+# 2        12  14       16
+frame.groupby(level="color", axis="columns").sum()
+# color      Green  Red
+# key1 key2            
+# a    1         2    1
+#      2         8    4
+# b    1        14    7
+#      2        20   10
+```
+
+使用 DataFrame 中的一列或多列作为行索引并不罕见；或者，您可能希望将行索引移动到 DataFrame 的列中。这是一个数据框示例：
+
+```python
+frame = pd.DataFrame({"a": range(7), "b": range(7, 0, -1),
+                      "c": ["one", "one", "one", "two", "two",
+                            "two", "two"],
+                      "d": [0, 1, 2, 0, 1, 2, 3]})
+frame
+#    a  b    c  d
+# 0  0  7  one  0
+# 1  1  6  one  1
+# 2  2  5  one  2
+# 3  3  4  two  0
+# 4  4  3  two  1
+# 5  5  2  two  2
+# 6  6  1  two  3
+```
+
+DataFrame 的 `set_index` 函数将使用其一列或多列作为索引创建一个新的 DataFrame：
+
+```python
+frame2 = frame.set_index(["c", "d"])
+frame2
+#        a  b
+# c   d      
+# one 0  0  7
+#     1  1  6
+#     2  2  5
+# two 0  3  4
+#     1  4  3
+#     2  5  2
+#     3  6  1
+```
+
+默认情况下，列将从 DataFrame 中删除，但您可以通过将 drop=False 传递给 set_index 将它们保留在其中：
+
+```python
+frame.set_index(["c", "d"], drop=False)
+#        a  b    c  d
+# c   d              
+# one 0  0  7  one  0
+#     1  1  6  one  1
+#     2  2  5  one  2
+# two 0  3  4  two  0
+#     1  4  3  two  1
+#     2  5  2  two  2
+#     3  6  1  two  3
+```
+
+另一方面，`reset_index` 的作用与 `set_index` 相反；分层索引级别移至列中：
+
+```python
+frame2.reset_index()
+#      c  d  a  b
+# 0  one  0  0  7
+# 1  one  1  1  6
+# 2  one  2  2  5
+# 3  two  0  3  4
+# 4  two  1  4  3
+# 5  two  2  5  2
+# 6  two  3  6  1
+```
+
+### 8.2 组合和合并数据集
+
+pandas 对象中包含的数据可以通过多种方式组合：
+
+- `pandas.merge`
+  基于一个或多个键连接 DataFrame 中的行。SQL 或其他关系数据库的用户对此会很熟悉，因为它实现了数据库连接操作。
+- `pandas.concat`
+  沿轴将对象连接或 “堆叠” 在一起。
+- `combine_first`
+  将重叠数据拼接在一起，用另一个对象的值填充一个对象中的缺失值。
+
+详细参考：https://wesmckinney.com/book/data-wrangling#prep_merge_join
+
+### 8.3 重塑和旋转
+
+有许多用于重新排列表格数据的基本操作。这些被称为重塑或旋转操作。
+
+分层索引提供了一种在 DataFrame 中重新排列数据的一致方法。有两个主要操作：
+
+- `stack`
+
+  这从数据中的列“旋转”或旋转到行。这会让 DataFrame 变“窄”变“长”。
+
+- `unstack`
+
+  这从行转向列。这会让 DataFrame 变“宽”变“短”。
+
+详细参考：https://wesmckinney.com/book/data-wrangling#prep_reshape
+

@@ -485,7 +485,7 @@ np.savez_compressed("arrays_compressed.npz", a=arr, b=arr) # 以压缩形式保�
 
 参考：https://wesmckinney.com/book/numpy-basics#numpy_linalg
 
-## 第 5 章 pandas 入门
+## 第 5 章：pandas 入门
 
 pandas 包含数据结构和数据操作工具，旨在使 Python 中的数据清理和分析变得快速、方便。
 

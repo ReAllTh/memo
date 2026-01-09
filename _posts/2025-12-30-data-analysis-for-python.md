@@ -71,10 +71,10 @@ tags: [Python, Data Analysis, 阅读笔记]
 
 ## 阅读计划
 
-- **略过**：第 9 章、附录 A & B
+- **略过**：第 9 章、第 11 章、第 13 章、附录 A & B
 - **浏览**：第 1 章、第 2 章、第 3 章
 - **摘录**：第 4 章、第 6 章、第 12 章
-- **精读**：第 5 章、第 7 章、第 8 章、第 10 章、第 11 章、第 13 章
+- **精读**：第 5 章、第 7 章、第 8 章、第 10 章
 
 标记为**略过**和**浏览**的章节不做记录，这些内容已经比较熟悉或者工作中用不到；标记为**摘录**的章节会记录其中的要点，这些内容基本都是工具的使用，简单记录用于后续查找即可；标记为**精读**的章节，会在原文基础上写出自己的思考和见解，这些内容是讲实际应用的，属于内功，需要好好消化。
 
@@ -3034,4 +3034,222 @@ pandas 对象中包含的数据可以通过多种方式组合：
   这从行转向列。这会让 DataFrame 变“宽”变“短”。
 
 详细参考：https://wesmckinney.com/book/data-wrangling#prep_reshape
+
+## 第 10 章：数据聚合与分组运算
+
+对数据集进行分类并向每个组应用函数（无论是聚合还是转换）都可能是数据分析工作流程的关键组成部分。加载、合并和准备数据集后，你可能需要计算组统计数据或可能的数据透视表以用于报告或可视化目的。 pandas 提供了一个多功能的 `groupby` 接口，能够以自然的方式对数据集进行切片、切块和汇总。
+
+![how to think group by op](https://wesmckinney.com/book/images/pda3_1001.png)
+
+```python
+df = pd.DataFrame({"key1" : ["a", "a", None, "b", "b", "a", None],
+                   "key2" : pd.Series([1, 2, 1, 2, 1, None, 1],
+                                      dtype="Int64"),
+                   "data1" : np.random.standard_normal(7),
+                   "data2" : np.random.standard_normal(7)})
+df
+#    key1  key2     data1     data2
+# 0     a     1 -0.204708  0.281746
+# 1     a     2  0.478943  0.769023
+# 2  None     1 -0.519439  1.246435
+# 3     b     2 -0.555730  1.007189
+# 4     b     1  1.965781 -1.296221
+# 5     a  <NA>  1.393406  0.274992
+# 6  None     1  0.092908  0.228913
+grouped = df["data1"].groupby(df["key1"])
+grouped
+# <pandas.core.groupby.generic.SeriesGroupBy object at 0x17b7913f0>
+grouped.mean()
+# key1
+# a    0.555881
+# b    0.705025
+# Name: data1, dtype: float64
+means = df["data1"].groupby([df["key1"], df["key2"]]).mean()
+means
+# key1  key2
+# a     1      -0.204708
+#       2       0.478943
+# b     1       1.965781
+#       2      -0.555730
+# Name: data1, dtype: float64
+means.unstack()
+# key2         1         2
+# key1                    
+# a    -0.204708  0.478943
+# b     1.965781 -0.555730
+```
+
+### 10.1 数据聚合
+
+聚合是指从数组生成标量值的任何数据转换。前面的示例使用了其中的平均值。许多常见的聚合（如下表中的聚合）都有优化的实现。
+
+| Function           | Description                                                  |
+| :----------------- | :----------------------------------------------------------- |
+| `any`, `all`       | 如果组内任何（一个或多个）或所有非 NA 值分别为“真”（truthy），则返回 True |
+| `count`            | 组内非 NA 值的数量                                           |
+| `cummin`, `cummax` | 非 NA 值的累积最小值和累积最大值                             |
+| `cumsum`           | 非 NA 值的累积和                                             |
+| `cumprod`          | 非 NA 值的累积积                                             |
+| `first`, `last`    | 组内第一个和最后一个非 NA 值                                 |
+| `mean`             | 非 NA 值的平均值                                             |
+| `median`           | 非 NA 值的算术中位数                                         |
+| `min`, `max`       | 非 NA 值的最小值和最大值                                     |
+| `prod`             | 非 NA 值的乘积                                               |
+| `std`, `var`       | 无偏（分母为 n-1）标准差和方差                               |
+| `sum`              | 非 NA 值的总和                                               |
+
+**补充说明：**
+
+*   非 NA 值 (non-NA values)：指的是不包含缺失值（如 `NaN` 或 `None`）的数据。
+*   无偏 (Unbiased)：在计算标准差和方差时，分母使用 $n-1$ 而不是 $n$，这在统计学中用于样本估计总体的偏差修正。
+
+`GroupBy` 具有极强的扩展性。它不仅仅局限于自带的那几个聚合函数（如 `sum`, `max`），它可以作为一种 “容器”，让你在每个分组上运行任何该数据类型支持的方法，代价仅仅是计算速度比那些经过专门优化的函数慢一些：
+
+```python
+df
+#    key1  key2     data1     data2
+# 0     a     1 -0.204708  0.281746
+# 1     a     2  0.478943  0.769023
+# 2  None     1 -0.519439  1.246435
+# 3     b     2 -0.555730  1.007189
+# 4     b     1  1.965781 -1.296221
+# 5     a  <NA>  1.393406  0.274992
+# 6  None     1  0.092908  0.228913
+grouped = df.groupby("key1")
+
+# 即使 GroupBy 没有直接定义 nsmallest，你依然可以这样写：
+result = grouped['data1'].nsmallest(2)
+# key1   
+# a     0   -0.204708
+#       1    0.478943
+# b     3   -0.555730
+#       4    1.965781
+# Name: data1, dtype: float64
+```
+
+你还可以自定义聚合函数，然后通过 `aggregate` 方法的短别名 `agg` 调用它：
+
+```python
+def peak_to_peak(arr):
+    return arr.max() - arr.min()
+grouped.agg(peak_to_peak)
+#       key2     data1     data2
+# key1                          
+# a        1  1.598113  0.494031
+# b        1  2.521511  2.303410
+```
+
+### 10.2 Apply：通用的分组-计算-组合函数
+
+最通用的 `GroupBy` 方法是 `apply`，它将正在操作的对象拆分为多个片段，在每个片段上调用传递的函数，然后尝试连接这些片段。
+
+```python
+def top(df, n=5, column="tip_pct"):
+    return df.sort_values(column, ascending=False)[:n]
+top(tips, n=6)
+#      total_bill   tip smoker  day    time  size   tip_pct
+# 172        7.25  5.15    Yes  Sun  Dinner     2  0.710345
+# 178        9.60  4.00    Yes  Sun  Dinner     2  0.416667
+# 67         3.07  1.00    Yes  Sat  Dinner     1  0.325733
+# 232       11.61  3.39     No  Sat  Dinner     2  0.291990
+# 183       23.17  6.50    Yes  Sun  Dinner     4  0.280535
+# 109       14.31  4.00    Yes  Sat  Dinner     2  0.279525
+tips.groupby("smoker").apply(top)
+#             total_bill   tip smoker   day    time  size   tip_pct
+# smoker                                                           
+# No     232       11.61  3.39     No   Sat  Dinner     2  0.291990
+#        149        7.51  2.00     No  Thur   Lunch     2  0.266312
+#        51        10.29  2.60     No   Sun  Dinner     2  0.252672
+#        185       20.69  5.00     No   Sun  Dinner     5  0.241663
+#        88        24.71  5.85     No  Thur   Lunch     2  0.236746
+# Yes    172        7.25  5.15    Yes   Sun  Dinner     2  0.710345
+#        178        9.60  4.00    Yes   Sun  Dinner     2  0.416667
+#        67         3.07  1.00    Yes   Sat  Dinner     1  0.325733
+#        183       23.17  6.50    Yes   Sun  Dinner     4  0.280535
+#        109       14.31  4.00    Yes   Sat  Dinner     2  0.279525
+```
+
+发生了什么？首先，`tips` DataFrame 根据 `smoker` 的值分为几组。然后对每个组调用 `top` 函数，并使用 `pandas.concat` 将每个函数调用的结果粘合在一起，并用组名称标记各个部分。因此，结果具有一个分层索引，其内部级别包含来自原始 DataFrame 的索引值。
+
+### 10.3 分组 `transform` 和 “解包” `GroupBy`
+
+在 pandas 中，`transform` 是一个非常强大的函数，它主要用于对 DataFrame 或 Series 执行操作，并返回一个与原始对象形状相同（即行数相同）的结果。
+
+它最常与 `groupby` 结合使用，用于在不改变数据结构的情况下进行特征工程或数值转换。
+
+`transform` 的三个核心特点是：
+
+1. 保持维度：输出的行数必须与输入的行数完全一致。
+2. 广播（Broadcasting）：它可以将聚合结果（如平均值）广播回原始数据的每一行。
+3. 支持多种输入：可以接受函数、字符串（内置函数名）、列表或字典。
+
+常结合 `Groupby` 进行数据标准化。这是 `transform` 最典型的用法。假设你有一组销售数据，你想计算每个销售员的每笔订单占其个人总销售额的比例。
+
+如果使用 `sum()`，结果会缩减为每个销售员一行；而使用 `transform('sum')`，结果会保持原来的行数，方便直接计算。
+
+```python
+df = pd.DataFrame({
+    'Name': ['Alice', 'Alice', 'Bob', 'Bob'],
+    'Sales': [100, 200, 300, 400]
+})
+
+# 计算每个人的总销售额并映射回原表
+df['Total_Sales'] = df.groupby('Name')['Sales'].transform('sum')
+#     Name  Sales  Total_Sales
+# 0  Alice    100          300
+# 1  Alice    200          300
+# 2    Bob    300          700
+# 3    Bob    400          700
+```
+
+另外一个典型场景是填充缺失值 (Imputation)，你可以根据分组的平均值来填充该组内的缺失值，而不是使用全局平均值。
+
+```python
+# 根据分组均值填充 NaN
+df['Sales'] = df.groupby('Name')['Sales'].transform(lambda x: x.fillna(x.mean()))
+```
+
+`transform` 也可以直接作用于 Series，对每个元素执行函数（类似于 `map` 或 `apply`），但其限制是必须返回相同长度的数据。
+
+#### transform 与 apply 的区别
+
+| 特性     | `transform`                                            | `apply`                            |
+| -------- | ------------------------------------------------------ | ---------------------------------- |
+| 输出形状 | 必须与输入行数一致                                     | 可以是标量、减少行数或改变形状     |
+| 操作范围 | 通常在单列上执行或分组后广播                           | 可以处理多列之间的交互（跨列计算） |
+| 性能     | 对内置聚合函数（如 `sum`, `mean`）有高度优化，速度极快 | 灵活性更高，但通常速度较慢         |
+
+当你需要改变数值但不改变数据框的形状（行数）时，应该优先选择 `transform`。它最适合用于：
+
+- 计算组内百分比。
+- 减去组内均值（去中心化）。
+- 在原表中新增一列基于分组统计的参考指标。
+
+### 10.4 数据透视表和交叉表
+
+数据透视表是电子表格程序和其他数据分析软件中常见的数据汇总工具。它通过一个或多个键聚合数据表，将数据排列在一个矩形中，其中一些组键沿行，一些沿列。 Python 中使用 pandas 的数据透视表可以通过本章中描述的 `groupby` 工具，结合利用分层索引的重塑操作来实现。 DataFrame 还有一个 `pivot_table` 方法，还有一个顶级 `pandas.pivot_table` 函数。除了为 `groupby` 提供方便的接口之外，`pivot_table` 还可以添加部分总计。
+
+返回到 `tips` 数据集，假设你想计算按行上的 `day` 和 `smoker` 排列的组均值表（默认的 `pivot_table` 聚合类型）：
+
+```python
+tips.head()
+#    total_bill   tip smoker  day    time  size   tip_pct
+# 0       16.99  1.01     No  Sun  Dinner     2  0.059447
+# 1       10.34  1.66     No  Sun  Dinner     3  0.160542
+# 2       21.01  3.50     No  Sun  Dinner     3  0.166587
+# 3       23.68  3.31     No  Sun  Dinner     2  0.139780
+# 4       24.59  3.61     No  Sun  Dinner     4  0.146808
+tips.pivot_table(index=["day", "smoker"],
+                 values=["size", "tip", "tip_pct", "total_bill"])
+#                  size       tip   tip_pct  total_bill
+# day  smoker                                          
+# Fri  No      2.250000  2.812500  0.151650   18.420000
+#      Yes     2.066667  2.714000  0.174783   16.813333
+# Sat  No      2.555556  3.102889  0.158048   19.661778
+#      Yes     2.476190  2.875476  0.147906   21.276667
+# Sun  No      2.929825  3.167895  0.160113   20.506667
+#      Yes     2.578947  3.516842  0.187250   24.120000
+# Thur No      2.488889  2.673778  0.160298   17.113111
+#      Yes     2.352941  3.030000  0.163863   19.190588
+```
 

@@ -1,11 +1,13 @@
 ---
 layout: post
-title: 《Python for Data Analysis, 3E》 阅读笔记（更新中）
+title: 《Python for Data Analysis, 3E》 阅读笔记
 date: 2025-12-30 09:02:08 +0000
 tags: [Python, Data Analysis, 阅读笔记]
 ---
 
 **更新**：感觉像第 4 章、第 5 章那样基本直接翻译原书，没啥意义，LC 上遇到题还是睁眼瞎，不如只记录常用 API，然后多实践，不会用 API 再去翻原书或者 Ref。
+
+**更新**：做些实际的例子会比较好。后面应该会发一些数据分析的案例。
 
 ---
 

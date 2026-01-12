@@ -3,6 +3,7 @@ layout: post
 title: 数据分析案例：Olist 巴西电商公共数据集
 date: 2026-01-11 19:30:08 +0000
 tags: [Data Analysis, case, 阅读笔记]
+mermaid: true
 ---
 
 **数据集来源**：
@@ -27,9 +28,10 @@ tags: [Data Analysis, case, 阅读笔记]
 
    这一阶段的目标是理清 11 张数据表的 **[ER 关系](https://www.visual-paradigm.com/cn/guide/data-modeling/what-is-entity-relationship-diagram/)**，构建可供分析的宽表模型。
 
-   - 语义标准化：明确核心字段的语义，特别是 `order_status`（订单状态）与时间戳字段（如 `order_delivered_customer_date`），确保分析时的基准是统一的。
+   - 语义标准化：数据源的网站已经给出了所有字段的准确语义。
+   - 业务逻辑映射：数据源的网站已经给出了现成的 Data Schema。
 
-   - 业务逻辑映射：数据源的网站已经给出了现成的 Data Schema，在此基础上，结合 Olist 的业务模式，画出 ER 图即可。
+   在二者的基础上，结合 Olist 的业务模式，画出 ER 图即可。
 
 2. **数据清洗**
 
@@ -64,4 +66,134 @@ tags: [Data Analysis, case, 阅读笔记]
    - 归因分析：探究影响差评（Review Score < 3）的核心因子（是产品质量还是物流速度？）。
 
 ## 数据架构与全貌认知
+
+**目标**：目标是理清 11 张数据表的 ER 关系，构建可供分析的宽表模型。
+
+数据源网站已经给出了所有字段的准确语义和 Data Schema，这里根据已有信息画出 ER 图即可。
+
+```mermaid
+---
+config:
+  theme: neutral
+---
+erDiagram
+	olist_customers {
+		string customer_id PK
+		string customer_unique_id UK
+		string customer_zip_code_prefix
+		string customer_city
+		string customer_state
+	}
+
+	olist_orders {
+		string order_id PK
+		string customer_id FK
+		string order_status
+		timestamp order_purchase_timestamp
+		timestamp order_approved_at
+		timestamp order_delivered_carrier_date
+		timestamp order_delivered_customer_date
+		timestamp order_estimated_delivery_date
+	}
+
+	olist_order_items {
+		string order_id FK
+		int order_item_id
+		string product_id FK
+		string seller_id FK
+		timestamp shipping_limit_date
+		float price
+		float freight_value
+	}
+
+	olist_products {
+		string product_id PK
+		string product_category_name 
+		int product_name_lenght 
+		int product_description_lenght 
+		int product_photos_qty 
+		float product_weight_g 
+		float product_length_cm 
+		float product_height_cm 
+		float product_width_cm 
+	}
+
+	olist_sellers {
+		string seller_id PK
+		string seller_zip_code_prefix 
+		string seller_city 
+		string seller_state 
+	}
+
+    olist_order_reviews {
+		string review_id PK
+		string order_id FK
+		int review_score 
+		string review_comment_title 
+		string review_comment_message 
+		timestamp review_creation_date 
+		timestamp review_answer_timestamp 
+	}
+
+	olist_order_payments {
+		string order_id FK
+		int payment_sequential 
+		string payment_type 
+		int payment_installments 
+		float payment_value 
+	}
+
+
+
+	olist_geolocation {
+		string geolocation_zip_code_prefix 
+		float geolocation_lat 
+		float geolocation_lng 
+		string geolocation_city 
+		string geolocation_state 
+	}
+
+	product_category_name_translation {
+		string product_category_name PK
+		string product_category_name_english UK
+	}
+
+	olist_marketing_qualified_leads {
+		string mql_id PK
+		date first_contact_date 
+		string landing_page_id 
+		string origin 
+	}
+
+	olist_closed_deals {
+		string mql_id FK
+		string seller_id FK
+		string sdr_id 
+		string sr_id 
+		timestamp won_date 
+		string business_segment 
+		string lead_type 
+		string lead_behaviour_profile 
+		bool has_company 
+		bool has_gtin 
+		string average_stock 
+		string business_type 
+		string declared_product_catalog_size 
+		string declared_monthly_revenue 
+	}
+
+	olist_customers||--o{olist_orders:"places"
+	olist_geolocation||--o{olist_customers:"locates"
+	olist_orders||--|{olist_order_items:"contains"
+	olist_orders||--|{olist_order_payments:"paid_via"
+	olist_orders||--o{olist_order_reviews:"receives"
+	olist_products||--o{olist_order_items:"defines"
+	olist_sellers||--o{olist_order_items:"fulfills"
+	olist_geolocation||--o{olist_sellers:"locates"
+	product_category_name_translation||--o{olist_products:"translates_category"
+	olist_marketing_qualified_leads||--o|olist_closed_deals:"converts_to"
+	olist_closed_deals|o--||olist_sellers:"becomes_seller"
+```
+
+## 数据清洗
 

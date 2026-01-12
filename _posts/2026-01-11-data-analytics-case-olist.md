@@ -62,3 +62,6 @@ tags: [Data Analysis, case, 阅读笔记]
    - RFM 用户/商家分层：基于 **[Recency-Frequency-Monetary 模型](https://blog.ocard.co/knowhow/crm-rfm-analysis/)**对商家进行价值分层，识别 “金牌商家” 特征。
    - 地理空间分析：绘制巴西物流热力图，识别 “高延迟、低评分” 的物流黑洞区域，提出仓储布局建议。
    - 归因分析：探究影响差评（Review Score < 3）的核心因子（是产品质量还是物流速度？）。
+
+## 数据架构与全貌认知
+

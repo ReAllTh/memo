@@ -72,10 +72,6 @@ mermaid: true
 数据源网站已经给出了所有字段的准确语义和 Data Schema，这里根据已有信息画出 ER 图即可。
 
 ```mermaid
----
-config:
-  theme: neutral
----
 erDiagram
 	olist_customers {
 		string customer_id PK
@@ -97,8 +93,8 @@ erDiagram
 	}
 
 	olist_order_items {
-		string order_id FK
-		int order_item_id
+		string order_id  PK, FK
+		int order_item_id PK
 		string product_id FK
 		string seller_id FK
 		timestamp shipping_limit_date
@@ -142,8 +138,6 @@ erDiagram
 		int payment_installments 
 		float payment_value 
 	}
-
-
 
 	olist_geolocation {
 		string geolocation_zip_code_prefix 
@@ -279,7 +273,7 @@ def audit_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         col_stat.update({
             'column': col,
             'type': col_type,
-            'count': col_cnt,
+            'count': row_cnt,
         })
         # 基础描述性统计
         col_missing_cnt = col_series.isna().sum()
@@ -366,22 +360,22 @@ if __name__ == '__main__':
 例如，这是对 `olist_closed_deals_dataset.csv` 的审计数据结果，`alerts` 不代表这个字段一定是有问题的，只是提示需要关注哪些方面：
 
 ```
-                                                           alerts     type  count  missing  missing_pct  unique  unique_pct                   top  top_cnt   top_pct  min         max          mean  median           std   zero  zero_pct  negative  negative_pct   skewness    kurtosis
-column                                                                                                                                                                                                                                                                                   
-mql_id                                may_pk_or_uk | may_need_nlp   object     14        0     0.000000     842    1.000000  000dd3543ac84d906eae      1.0  0.001188  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
-seller_id                             may_pk_or_uk | may_need_nlp   object     14        0     0.000000     842    1.000000  00065220becb8785e2cf      1.0  0.001188  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
-sdr_id                                               may_need_nlp   object     14        0     0.000000      32    0.038005  4b339f9567d060bcea4f    140.0  0.166271  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
-sr_id                                                may_need_nlp   object     14        0     0.000000      22    0.026128  4ef15afb4b2723d8f3d8    133.0  0.157957  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
-won_date                              may_pk_or_uk | may_need_nlp   object     14        0     0.000000     824    0.978622   2018-05-04 03:00:00      6.0  0.007126  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
-business_segment               missing_need_handle | may_need_nlp   object     14        1     0.001188      33    0.039192            home_decor    105.0  0.124703  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
-lead_type                                     missing_need_handle   object     14        6     0.007126       8    0.009501         online_medium    332.0  0.394299  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
-lead_behaviour_profile                        missing_need_handle   object     14      177     0.210214       9    0.010689                   cat    407.0  0.483373  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
-has_company                                   missing_need_handle   object     14      779     0.925178       2    0.002375                  True     58.0  0.068884  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
-has_gtin                                      missing_need_handle   object     14      778     0.923990       2    0.002375                  True     54.0  0.064133  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
-average_stock                                 missing_need_handle   object     14      776     0.921615       6    0.007126                  5-20     22.0  0.026128  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
-business_type                                 missing_need_handle   object     14       10     0.011876       3    0.003563              reseller    587.0  0.697150  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
-declared_product_catalog_size                 missing_need_handle  float64     14      773     0.918052      33    0.039192                   NaN      NaN       NaN  1.0      2000.0    233.028986   100.0  3.523806e+02    0.0  0.000000       0.0           0.0   2.731955    9.274852
-declared_monthly_revenue                                           float64     14        0     0.000000      27    0.032067                   NaN      NaN       NaN  0.0  50000000.0  73377.679335     0.0  1.744799e+06  797.0  0.946556       0.0           0.0  28.036956  800.377062
+                                                    alerts     type  count  missing  missing_pct  unique  unique_pct                   top  top_cnt   top_pct  min         max          mean  median           std   zero  zero_pct  negative  negative_pct   skewness    kurtosis
+column                                                                                                                                                                                                                                                                            
+mql_id                         may_pk_or_uk | may_need_nlp   object    842        0     0.000000     842    1.000000  000dd3543ac84d906eae      1.0  0.001188  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+seller_id                      may_pk_or_uk | may_need_nlp   object    842        0     0.000000     842    1.000000  00065220becb8785e2cf      1.0  0.001188  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+sdr_id                                                       object    842        0     0.000000      32    0.038005  4b339f9567d060bcea4f    140.0  0.166271  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+sr_id                                                        object    842        0     0.000000      22    0.026128  4ef15afb4b2723d8f3d8    133.0  0.157957  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+won_date                       may_pk_or_uk | may_need_nlp   object    842        0     0.000000     824    0.978622   2018-05-04 03:00:00      6.0  0.007126  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+business_segment                       missing_need_handle   object    842        1     0.001188      33    0.039192            home_decor    105.0  0.124703  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+lead_type                              missing_need_handle   object    842        6     0.007126       8    0.009501         online_medium    332.0  0.394299  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+lead_behaviour_profile                 missing_need_handle   object    842      177     0.210214       9    0.010689                   cat    407.0  0.483373  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+has_company                            missing_need_handle   object    842      779     0.925178       2    0.002375                  True     58.0  0.068884  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+has_gtin                               missing_need_handle   object    842      778     0.923990       2    0.002375                  True     54.0  0.064133  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+average_stock                          missing_need_handle   object    842      776     0.921615       6    0.007126                  5-20     22.0  0.026128  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+business_type                          missing_need_handle   object    842       10     0.011876       3    0.003563              reseller    587.0  0.697150  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+declared_product_catalog_size          missing_need_handle  float64    842      773     0.918052      33    0.039192                   NaN      NaN       NaN  1.0      2000.0    233.028986   100.0  3.523806e+02    0.0  0.000000       0.0           0.0   2.731955    9.274852
+declared_monthly_revenue                                    float64    842        0     0.000000      27    0.032067                   NaN      NaN       NaN  0.0  50000000.0  73377.679335     0.0  1.744799e+06  797.0  0.946556       0.0           0.0  28.036956  800.377062
 
 ```
 
@@ -451,5 +445,123 @@ declared_monthly_revenue                                           float64     1
 
 **检查结果**：只有一些代表序列的字段发生了偏态和均值偏移，这是正常的，不做处理。
 
-### 时效特征构造
+这是数据清洗的脚本
+
+```python
+import pandas as pd
+
+if __name__ == '__main__':
+    closed_deals = pd.read_csv('./dataset/olist_closed_deals_dataset.csv')
+    marketing_qualified_leads = pd.read_csv('./dataset/olist_marketing_qualified_leads_dataset.csv')
+    orders = pd.read_csv('./dataset/olist_orders_dataset.csv')
+    order_reviews = pd.read_csv('./dataset/olist_order_reviews_dataset.csv')
+    products = pd.read_csv('./dataset/olist_products_dataset.csv')
+    # 完整性清洗
+    closed_deals = closed_deals.dropna(subset=['business_segment', 'lead_type', 'business_type'])
+    closed_deals['lead_behaviour_profile'] = closed_deals['lead_behaviour_profile'].fillna('unknown')
+    closed_deals = closed_deals.drop(
+        columns=['has_company', 'has_gtin', 'average_stock', 'declared_product_catalog_size'])
+    marketing_qualified_leads['origin'] = marketing_qualified_leads['origin'].dropna()
+    orders = orders.dropna(
+        subset=['order_approved_at', 'order_delivered_carrier_date', 'order_delivered_customer_date'])
+    order_reviews['review_comment_title'] = order_reviews['review_comment_title'].fillna('')
+    order_reviews['review_comment_message'] = order_reviews['review_comment_message'].fillna('')
+    products = products.dropna(subset=products.columns.difference(['product_id']))
+    # 其他三项评估后暂时无需处理
+    # 写入新文件夹 cleaned
+    closed_deals.to_csv('./cleaned/olist_closed_deals_dataset.csv', index=False)
+    marketing_qualified_leads.to_csv('./cleaned/olist_marketing_qualified_leads_dataset.csv', index=False)
+    orders.to_csv('./cleaned/olist_orders_dataset.csv', index=False)
+    order_reviews.to_csv('./cleaned/order_reviews.csv', index=False)
+    products.to_csv('./cleaned/products.csv', index=False)
+
+```
+
+可以看到清洗出来的 `olist_closed_deals_dataset.csv` 已经没有数据缺失
+```
+                                               alerts     type  count  missing  missing_pct  unique  unique_pct                   top  top_cnt   top_pct  min         max          mean  median           std   zero  zero_pct  negative  negative_pct   skewness    kurtosis
+column                                                                                                                                                                                                                                                                       
+mql_id                    may_pk_or_uk | may_need_nlp   object    825        0          0.0     825    1.000000  000dd3543ac84d906eae      1.0  0.001212  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+seller_id                 may_pk_or_uk | may_need_nlp   object    825        0          0.0     825    1.000000  00065220becb8785e2cf      1.0  0.001212  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+sdr_id                                                  object    825        0          0.0      32    0.038788  4b339f9567d060bcea4f    138.0  0.167273  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+sr_id                                                   object    825        0          0.0      22    0.026667  4ef15afb4b2723d8f3d8    131.0  0.158788  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+won_date                  may_pk_or_uk | may_need_nlp   object    825        0          0.0     807    0.978182   2018-05-04 03:00:00      6.0  0.007273  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+business_segment                                        object    825        0          0.0      33    0.040000            home_decor    103.0  0.124848  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+lead_type                                               object    825        0          0.0       8    0.009697         online_medium    327.0  0.396364  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+lead_behaviour_profile                                  object    825        0          0.0      10    0.012121                   cat    400.0  0.484848  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+business_type                                           object    825        0          0.0       3    0.003636              reseller    580.0  0.703030  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+declared_monthly_revenue                               float64    825        0          0.0      27    0.032727                   NaN      NaN       NaN  0.0  50000000.0  74889.704242     0.0  1.762674e+06  780.0  0.945455       0.0           0.0  27.752442  784.214765
+
+```
+
+### 时效特征构造和地理特征处理
+
+目前关于物流的信息散落在多个表格当中，我们需要构造一张事实表，处理时效和地理特征，专门用作物流时效分析。
+
+```mermaid
+erDiagram
+	olist_orders {
+		string order_id PK
+		string customer_id FK
+		string order_status
+		timestamp order_purchase_timestamp
+		timestamp order_approved_at
+		timestamp order_delivered_carrier_date
+		timestamp order_delivered_customer_date
+		timestamp order_estimated_delivery_date
+	}
+
+	olist_order_items {
+		string order_id  PK, FK
+		int order_item_id PK
+		string product_id FK
+		string seller_id FK
+		timestamp shipping_limit_date
+		float price
+		float freight_value
+	}
+
+	olist_products {
+		string product_id PK
+		string product_category_name 
+		int product_name_lenght 
+		int product_description_lenght 
+		int product_photos_qty 
+		float product_weight_g 
+		float product_length_cm 
+		float product_height_cm 
+		float product_width_cm 
+	}
+
+	olist_sellers {
+		string seller_id PK
+		string seller_zip_code_prefix 
+		string seller_city 
+		string seller_state 
+	}
+	
+	olist_dilivery {
+		string order_id PK, FK
+		int order_item_id PK, FK
+		string product_id FK
+		string seller_id FK
+		bool is_delayed
+		bool is_cross_state
+		float hours_payment_process
+		float hours_seller_handling
+		float hours_logistics_transit
+		float hours_delayed
+		float distance_km
+		float freight_value
+	}
+
+
+	olist_products||--o{olist_order_items:"defines"
+	olist_sellers||--o{olist_order_items:"fulfills"
+	olist_orders||--|{olist_order_items:"contains"
+	olist_orders||--|{olist_dilivery:"contains"
+	olist_order_items||--||olist_dilivery:"computes"
+	olist_products||--o{olist_dilivery:"contains"
+	olist_sellers||--o{olist_dilivery:"ship"
+```
 

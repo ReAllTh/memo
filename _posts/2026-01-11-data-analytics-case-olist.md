@@ -37,7 +37,7 @@ mermaid: true
 
    这一阶段的目标是将原始脏数据转化为高质量的分析资产。
 
-   - 数据质量审计：检查数据的完整性（`Null` 值分布）、一致性（价格异常值、状态冲突）、唯一性（主键查重）和分布合理性（偏度和峰度），并以合适的方式处理非法数据（剔除或填充）。但数据源本身质量很高，这里只讲讲一些常用的清洗思路。
+   - 数据质量审计：检查数据的完整性（`Null` 值分布）、一致性（价格异常值、状态冲突）、唯一性（主键查重）和分布合理性（偏度和峰度），并以合适的方式处理非法数据（剔除或填充）。
 
    - 时效特征构造：计算 `delta_delivery_time`（实际送达 - 预计送达），用于量化物流延迟程度。
    - 地理特征处理：利用地理坐标计算商家与买家间的物理距离，为物流分析提供归因依据。
@@ -201,7 +201,7 @@ erDiagram
 
 ### 数据质量审计
 
-首先需要明确，质量审计并不是要把所有字段的值全部清洗到一尘不染，对于大数据量的分析来说，有偶尔的脏数据是可以容忍的，况且显示世界的业务是很复杂的，有时候根本无法判断某个字段的值到底是不是合法的，这里只需要让数据绝大部分可用即可。
+首先需要明确，质量审计并不是要把所有字段的值全部清洗到一尘不染，对于大数据量的分析来说，有偶尔的脏数据是可以容忍的，况且现实世界的业务是很复杂的，有时候根本无法判断某个字段的值到底是不是合法的，这里只需要让数据绝大部分可用即可。
 
 面对 Olist 数据集复杂的 11 张表结构，手动逐个检查字段不仅效率低下，而且很容易遗漏异常。为此，我构建了一个基于 Pandas 的通用数据审计脚本。该工具能自动计算当前目录的 `dataset` 文件夹下所有 `csv` 文件数据集的缺失率、基数分布、偏度峰度等 10+ 项关键指标，并把最终的审计结果保存在当前目录下的 `audit_report.xlsx` 文件中。
 
@@ -210,11 +210,53 @@ import glob
 import os.path
 
 import pandas as pd
-from pandas.core.dtypes.common import is_numeric_dtype, is_datetime64_any_dtype
+from pandas.core.dtypes.common import is_numeric_dtype, is_datetime64_any_dtype, is_integer_dtype, is_object_dtype
 from tqdm import tqdm
 
 pd.set_option('display.width', None)
 pd.set_option('display.max_columns', None)
+
+
+def alert_row(row):
+    """
+    对单行数据进行规则告警
+    有告警只以为着需要关注，并不意味着一定有问题
+
+    :param row: 要告警的行
+    :return: None
+    """
+
+    alerts = []
+    is_integer = is_integer_dtype(row['type'])
+    is_obj = is_object_dtype(row['type'])
+    # 完整性检查
+    if row['missing_pct'] > 0.0:
+        alerts.append('missing_need_handle')
+    # 一致性检查
+    if is_integer and row['zero_pct'] > 0.0:
+        alerts.append('if_zero_valid')
+    if is_integer and row['negative_pct'] > 0.0:
+        alerts.append('if_negative_valid')
+    if is_integer and row['max'] > (row['mean'] + 3 * row['std']):
+        alerts.append('check_polar_valid')
+    # 唯一性检查
+    if row['unique'] == 1:
+        alerts.append('single_no_need')
+    if row['top_pct'] > 0.95:
+        alerts.append('too_many_top')
+    if row['unique_pct'] > 0.95:
+        alerts.append('may_pk_or_uk')
+    if is_obj and row['unique'] / row['count'] > 0.9:
+        alerts.append('may_need_nlp')
+    # 分布合理性检查
+    if is_integer and abs(row['skewness']) > 3:
+        alerts.append('high_skewed')
+    if is_integer and abs(row['kurtosis']) > 2:
+        alerts.append('may_high_kurt')
+    if is_integer and row['mean'] / row['median'] >= 100:
+        alerts.append('mean_shifted')
+
+    return ' | '.join(alerts)
 
 
 def audit_dataframe(df: pd.DataFrame) -> pd.DataFrame:
@@ -237,6 +279,7 @@ def audit_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         col_stat.update({
             'column': col,
             'type': col_type,
+            'count': col_cnt,
         })
         # 基础描述性统计
         col_missing_cnt = col_series.isna().sum()
@@ -280,6 +323,8 @@ def audit_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         audit_stat.append(col_stat)
 
     audit_df = pd.DataFrame(audit_stat).set_index('column')
+    audit_df.insert(0, 'alerts', audit_df.apply(alert_row, axis=1))
+
     return audit_df
 
 
@@ -298,7 +343,7 @@ def audit_all_dataset(folder_path):
         return
 
     print(f'找到 {len(csv_files)} 个 csv 文件，开始审计')
-    writer = pd.ExcelWriter('audit_report.xlsx')
+    writer = pd.ExcelWriter('audit_report.xlsx', engine="xlsxwriter")
 
     for file_path in tqdm(csv_files, desc="Processing Files"):
         file_name = os.path.basename(file_path).replace('.csv', '')
@@ -318,53 +363,93 @@ if __name__ == '__main__':
 
 ```
 
-例如，这是对 `olist_customers_dataset` 的审计数据结果：
+例如，这是对 `olist_closed_deals_dataset.csv` 的审计数据结果，`alerts` 不代表这个字段一定是有问题的，只是提示需要关注哪些方面：
 
 ```
-                            type  missing  missing_pct  unique  unique_pct                   top  top_cnt   top_pct     min      max          mean   median           std  zero  zero_pct  negative  negative_pct  skewness  kurtosis
-column                                                                                                                                                                                                                               
-customer_id               object        0          0.0   99441    1.000000  00012a2ce6f8dcda20d0      1.0  0.000010     NaN      NaN           NaN      NaN           NaN   NaN       NaN       NaN           NaN       NaN       NaN
-customer_unique_id        object        0          0.0   96096    0.966362  8d50f5eadf50201ccdce     17.0  0.000171     NaN      NaN           NaN      NaN           NaN   NaN       NaN       NaN           NaN       NaN       NaN
-customer_zip_code_prefix   int64        0          0.0   14994    0.150783                   NaN      NaN       NaN  1003.0  99990.0  35137.474583  24416.0  29797.938996   0.0       0.0       0.0           0.0  0.779025 -0.788204
-customer_city             object        0          0.0    4119    0.041422             sao paulo  15540.0  0.156274     NaN      NaN           NaN      NaN           NaN   NaN       NaN       NaN           NaN       NaN       NaN
-customer_state            object        0          0.0      27    0.000272                    SP  41746.0  0.419807     NaN      NaN           NaN      NaN           NaN   NaN       NaN       NaN           NaN       NaN       NaN
+                                                           alerts     type  count  missing  missing_pct  unique  unique_pct                   top  top_cnt   top_pct  min         max          mean  median           std   zero  zero_pct  negative  negative_pct   skewness    kurtosis
+column                                                                                                                                                                                                                                                                                   
+mql_id                                may_pk_or_uk | may_need_nlp   object     14        0     0.000000     842    1.000000  000dd3543ac84d906eae      1.0  0.001188  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+seller_id                             may_pk_or_uk | may_need_nlp   object     14        0     0.000000     842    1.000000  00065220becb8785e2cf      1.0  0.001188  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+sdr_id                                               may_need_nlp   object     14        0     0.000000      32    0.038005  4b339f9567d060bcea4f    140.0  0.166271  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+sr_id                                                may_need_nlp   object     14        0     0.000000      22    0.026128  4ef15afb4b2723d8f3d8    133.0  0.157957  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+won_date                              may_pk_or_uk | may_need_nlp   object     14        0     0.000000     824    0.978622   2018-05-04 03:00:00      6.0  0.007126  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+business_segment               missing_need_handle | may_need_nlp   object     14        1     0.001188      33    0.039192            home_decor    105.0  0.124703  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+lead_type                                     missing_need_handle   object     14        6     0.007126       8    0.009501         online_medium    332.0  0.394299  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+lead_behaviour_profile                        missing_need_handle   object     14      177     0.210214       9    0.010689                   cat    407.0  0.483373  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+has_company                                   missing_need_handle   object     14      779     0.925178       2    0.002375                  True     58.0  0.068884  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+has_gtin                                      missing_need_handle   object     14      778     0.923990       2    0.002375                  True     54.0  0.064133  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+average_stock                                 missing_need_handle   object     14      776     0.921615       6    0.007126                  5-20     22.0  0.026128  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+business_type                                 missing_need_handle   object     14       10     0.011876       3    0.003563              reseller    587.0  0.697150  NaN         NaN           NaN     NaN           NaN    NaN       NaN       NaN           NaN        NaN         NaN
+declared_product_catalog_size                 missing_need_handle  float64     14      773     0.918052      33    0.039192                   NaN      NaN       NaN  1.0      2000.0    233.028986   100.0  3.523806e+02    0.0  0.000000       0.0           0.0   2.731955    9.274852
+declared_monthly_revenue                                           float64     14        0     0.000000      27    0.032067                   NaN      NaN       NaN  0.0  50000000.0  73377.679335     0.0  1.744799e+06  797.0  0.946556       0.0           0.0  28.036956  800.377062
 
 ```
 
 一般来讲，我们解读审计报告，主要是检查数据的完整性、一致性、唯一性还有分布合理性：
 
-- **完整性检查**
+#### 完整性检查
 
-  关注指标：`missing_pct`
+关注指标：`missing_pct`
 
-  - 完美：`missing_pct == 0`
-  - 可容忍：`0 <= missing_pct <= 0.05`，通常可以用均值或者众数填充，或者直接删除对应的行
-  - 无法容忍：`missing_pct > 0.3`，除非这个字段本身就是 “稀疏” 的，比如 “备注” 字段，否则这列没有分析价值
-  - 直接删除：`missing_pct > 0.8`
+- 完美：`missing_pct == 0`
+- 可容忍：`0 <= missing_pct <= 0.3`，通常可以用均值或者众数填充，或者直接删除对应的行
+- 无法容忍：`missing_pct > 0.3`，除非这个字段本身就是 “稀疏” 的，比如 “备注” 字段，否则这列没有分析价值
+- 直接删除这列：`missing_pct > 0.8`
 
-- **一致性检查**
+**检查结果**：
 
-  关注指标：`min`、`max`、`zero_pct`、`negative_pct`、`negative_pct`
+- `closed_deals`
+  - `business_segment`、`lead_type`、`business_type` 缺失小于 1%，删除对应的行
+  - `lead_behaviour_profile` 缺失 21%，这个字段是销售代表主观判断的客户类型，它的缺失本身就代表了 “暂时无法判断” 的信息，可以用 `unknown` 填充
+  - `has_company`、`has_gtin`、`average_stock`、`declared_product_catalog_size` 缺失 90+%，删除这四列
+- `marketing_qualified_leads`
+  - `origin` 缺失 0.8%，删除对应的行
+- `orders`
+  - `order_approved_at`、`order_delivered_carrier_date`、`order_delivered_customer_date` 缺失率低于 3%，删除对应的行
+- `order_reviews`
+  - `review_comment_title` 和 `review_comment_message` 缺失分别超过 10% 和 40%，但是这两个是用户的评论，业务价值比较高，不适合直接删除，可以用空字符串填充
+- `products`
+  - 除了 `product_id` 之外，其余字段都有少量缺失（<2%），删除对应的行
 
-  - 异常零值：对于某些字段（如“身高”、“价格”、“耗时”），0 是没有物理意义的。如果 zero_pct > 0，说明存在脏数据。
-  - 异常负值：对于“年龄”、“销售额”、“库存”等字段，min < 0 或 negative_pct > 0，说明存在逻辑错误。
-  - 极值检查：如果 `max` 远大于 `mean + 3 * std`，或者 `max` 是 `median` 的数百倍，说明存在极端离群值。
+#### 一致性检查
 
-- **唯一性检查**
+关注指标：`min`、`max`、`zero_pct`、`negative_pct`、`negative_pct`
 
-  关注指标：`unique_pct`、`unique` 、`top_pct` 
+- 异常零值：对于某些字段（如“身高”、“价格”、“耗时”），0 是没有物理意义的。如果 `zero_pct > 0`，说明存在脏数据。
+- 异常负值：对于“年龄”、“销售额”、“库存”等字段，`min < 0` 或 `negative_pct > 0`，说明存在逻辑错误。
+- 极值检查：如果 `max` 远大于 `mean + 3 * std`，或者 `max` 是 `median` 的数百倍，说明存在极端离群值。
 
-  - 单一值：`unique == 1`，此列没有额外的信息贡献，建议直接删除
-  - 低方差： `top_pct > 0.95`，此列 95% 的数据都是同一个值，可能冗余太大，分析价值不高
-  - 主键判定：`unique_pct == 1`，如果此列是主键列，但是不满足条件，那么这列数据可能不干净
-  - 高基数：`type` 是 `object/category`，但 `unique_cnt` 非常大（接近行数）。说明这可能是一个杂乱的文本字段（如用户评论），而不是分类字段，需要 NLP 处理。
+**检查结果**：
 
-- **分布合理性检查**
+- `order_items`
+  - `order_item_id` 提示极值异常，但是这个字段是用来在同一个订单的不同商品排序的，大部分人一个订单只买少量东西，偶尔有人买了很多东西很正常，可以忽略处理。
+- `order_payments`
+  - `payment_sequential` 和 `payment_installments` 提示极值异常和零值异常，可以忽略处理，这是一个序列字段，并且部分人买东西不走分期付款。
 
-  关注指标：`mean` vs `median`、`skewness`、`kurtosis`
+#### 唯一性检查
 
-  - 偏态分布：如果 `abs(skewness) > 3`，说明数据分布严重倾斜（长尾）。虽然不一定是脏数据，但在建模前通常需要做对数变换。
+关注指标：`unique_pct`、`unique` 、`top_pct` 
 
-  - 均值偏移：如果 `mean` 和 `median` 差异巨大（例如 `mean=1000`、`median=10`），通常暗示有巨大离群值拉高了均值。
+- 单一值：`unique == 1`，此列没有额外的信息贡献，建议直接删除
+- 低方差：`top_pct > 0.95`，此列 95% 的数据都是同一个值，可能冗余太大，分析价值不高
+- 主键判定：`unique_pct == 1`，如果此列是主键列，但是不满足条件，那么这列数据可能不干净
+- 高基数：`type` 是 `object/category`，但 `unique_cnt` 非常大（接近行数）。说明这可能是一个杂乱的文本字段（如用户评论），而不是分类字段，需要 NLP 处理。
 
-    
+**检查结果**：
+
+- `orders`
+  - `order_status` 有 97% 都是 `delivered`，属于低方差，但是这个字段业务价值很高，暂且保留
+
+#### 分布合理性检查
+
+关注指标：`mean` vs `median`、`skewness`、`kurtosis`
+
+- 偏态分布：如果 `abs(skewness) > 3`，说明数据分布严重倾斜（长尾）。虽然不一定是脏数据，但在建模前通常需要做对数变换。
+
+- 均值偏移：如果 `mean` 和 `median` 差异巨大（例如 `mean=1000`、`median=10`），通常暗示有巨大离群值拉高了均值。
+
+
+**检查结果**：只有一些代表序列的字段发生了偏态和均值偏移，这是正常的，不做处理。
+
+### 时效特征构造
+

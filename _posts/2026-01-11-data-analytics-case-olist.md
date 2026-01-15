@@ -4,6 +4,7 @@ title: 数据分析案例：Olist 巴西电商公共数据集
 date: 2026-01-11 19:30:08 +0000
 tags: [Data Analysis, case, 阅读笔记]
 mermaid: true
+math:true
 ---
 
 **数据集来源**：

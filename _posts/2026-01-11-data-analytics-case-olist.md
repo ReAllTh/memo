@@ -220,13 +220,138 @@ freight_value                                                         float64  1
 
 那现在的问题就更清晰了，新用户开发接近瓶颈，但老用户又留不下来。那用户为什么不复购呢？
 
-我们需要把新老用户都买了什么商品拉出来看看，是不是大多数用户买的东西本身就不是易耗品呢？
+用户不复购的理由无非就两种：商品本身不需要频繁复购或者购买体验差导致不愿意再复购。
 
-**可视化展示，新老用户的购物模式没有明显区别，并不是因为商品本身的属性导致用户不复购，**
+**对比新老用户的商品购买偏好，可以发现没有明显区别，但买的东西大多数都是耐用品，本身复购率就比较低。**
 
 ![olist_bi_product_cate](./../assets/img/olist_bi_product_cate.png)
 
-至此，我们有充足的理由去看看用户的订单评论，主要是看差评。
+| 英文分类名      | 中文含义                 | 产品属性      | 复购频率                                                  |
+| --------------- | ------------------------ | ------------- | --------------------------------------------------------- |
+| bed_bath_table  | 床上用品、卫浴、桌布     | 半耐用品      | **低**。一套床单或毛巾通常可以使用 1-2 年。               |
+| sports_leisure  | 运动与休闲（器材、服装） | 耐用品/消费品 | **中低**。运动器材（如哑铃、帐篷）属于典型耐用品。        |
+| furniture_decor | 家具装饰（灯具、挂饰等） | 硬耐用品      | **极低**。装修或布置房间是一次性需求。                    |
+| health_beauty   | 健康美容（仪器、化妆品） | 消费品        | **中**。虽然护肤品是消耗品，但 Olist 上有很多是美容仪器。 |
+| housewares      | 家用器具（厨具、小家电） | 耐用品        | **低**。锅铲、烤箱等家电除非损坏，否则很少复购。          |
+
+另一方面，我们还要看看那些非满分评价主要是在抱怨什么。
+
+![olist_bi_review_score](./../assets/img/olist_bi_review_score.png)
 
 这里需要 NLP 接入进行情感分析，和主题词提取。
+
+```python
+import os
+import sys
+
+# 配置 HuggingFace 镜像
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+
+import nltk
+import pandas as pd
+
+# 配置打印时不折叠字段
+pd.set_option('display.width', None)
+pd.set_option('display.max_columns', None)
+
+from bertopic import BERTopic
+from nltk.corpus import stopwords
+from sklearn.feature_extraction.text import CountVectorizer
+
+
+def ensure_nltk_resources():
+    """
+    确保 NLTK 资源存在，用于停用词处理
+
+    :return: None
+    """
+    try:
+        nltk.find('corpora/stopwords')
+    except LookupError:
+        print('正在尝试下载 NLTK stopwords...')
+        try:
+            nltk.download('stopwords')
+        except Exception as e:
+            print(f'\nNLTK 资源下载失败:{e}')
+            sys.exit(1)
+
+
+def sense_analysis():
+    """
+    情感分析处理
+
+    :return: None
+    """
+    print("--- 程序已启动，正在初始化，请稍候... ---")
+    # 1. 确保 NLTK 停用词可用
+    ensure_nltk_resources()
+    pt_stopwords = stopwords.words('portuguese')
+    # 剔除无意义的口水词
+    extra_stopwords = ['ol', 'bo', 'bababa', 'jjjj', 'io', 'td', 'ta', 'bommm']
+    pt_stopwords.extend(extra_stopwords)
+    # 2. 读取并清洗数据
+    reviews = pd.read_csv('./dataset/olist_order_reviews_dataset.csv')
+    reviews = reviews.dropna(subset=['review_comment_message'])
+    reviews = reviews[reviews['review_comment_message'].str.strip() != '']
+    reviews = reviews.loc[reviews['review_score'] < 5, :]
+    reviews['clean_text'] = reviews['review_comment_message'].str.lower()
+    print(f'评论清洗完成，有效评论量: {len(reviews)}')
+    # 3. 初始化 BERTopic
+    print('正在初始化 BERTopic 模型...')
+    vectorizer_model = CountVectorizer(stop_words=pt_stopwords)
+    topic_model = BERTopic(
+        language='multilingual',
+        embedding_model='sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2',
+        vectorizer_model=vectorizer_model,
+        verbose=True,
+        nr_topics='auto'
+    )
+    # 训练模型
+    topics, probs = topic_model.fit_transform(reviews['clean_text'])
+    # 4. 获取主题列表
+    topic_info = topic_model.get_topic_info()
+    print('\n主要主题列表 (Top 20):')
+    print(topic_info.head(20))
+    top_20_topics = topic_info.head(20).copy()
+    # 6. 导出结果
+    # 将主题 ID 映射回原始数据
+    output_path = './dataset/bad_reviews_top_topics.csv'
+    top_20_topics.to_csv(output_path, index=False)
+    print(f'\n结果已导出至: {output_path}')
+
+
+if __name__ == '__main__':
+    sense_analysis()
+```
+
+| **主题 ID** | **样本数量** | **主题标签 (Name)** | **关键词 (Representation)**        | **代表性评论内容 (中译)**                                    |
+| ----------- | ------------ | ------------------- | ---------------------------------- | ------------------------------------------------------------ |
+| **-1**      | 8875         | 未分类/综合投诉     | 产品, 购买, 物流, 店铺, 收到, 期限 | **"订单显示已送达但我没收到"**, "提前送达且质量很好", **"只收到了两个中的一个"** |
+| **0**       | 534          | 数量缺失            | 单位, 两件, 仅, 收到, 购买, 零件   | **"买了2个单位只收到1个!!", "我买了两个，结果只发了一个。"** |
+| **1**       | 526          | 总体好评            | 好, 棒, 推荐, 不错, 喜欢, 顶级的   | "好", "很好", "非常推荐"                                     |
+| **2**       | 507          | 提前送达(质量)      | 提前, 快速, 期限, 收到, 质量       | "比预期提前送达，产品非常好!", "产品提前到了。"              |
+| **3**       | 410          | 配送时效            | 提前, 期限, 延迟, 准时, 延期       | "提前到货", "在期限内送达", **"物流稍有延迟"**               |
+| **4**       | 371          | 包装破损            | 箱子, 错误, 压扁, 包装, 缺陷, 损坏 | **"包装很差，箱子都压扁了", "产品收到时包装盒是坏的。"**     |
+| **5**       | 346          | 颜色错误            | 颜色, 蓝色, 黑色, 错误, 粉色, 白色 | **"颜色不对", "买了粉色结果发了黑色。虽然产品不错但颜色错了。"** |
+| **6**       | 341          | 优质/推荐           | 棒, 优秀, 质量, 漂亮, 推荐         | "产品很好", "质量非常好的产品"                               |
+| **7**       | 289          | 逾期未达(日期)      | 2018, 日期, 预计, 今天, 还没收到   | **"预计27号送达，今天29号了还没收到!", "一直没收到货也没发票。"** |
+| **8**       | 285          | 邮局自提问题        | 家里, 邮局, 去取, 运费, 住宅       | **"我付了送货上门的运费，却得自己去邮局取货！", "产品没送到家。"** |
+| **9**       | 258          | 手表类目            | 手表, 卡西欧, 表带, 女款, 盒子     | "手表非常好", **"没收到手表", "手表没送达"**                 |
+| **10**      | 234          | 订单查询/无回应     | 订单, 包裹, 还没, 联系, 没人       | **"还没收到我的订单", "联系不上客服，订单还没到"**           |
+| **11**      | 212          | 订单取消            | 取消, 申请, 没收到, 已经           | **"逾期未送达我申请取消", "没收到货也没要求取消", "申请了取消结果还是发货了"** |
+| **12**      | 182          | 状态正常            | OK, 一切正常, 正常, 顺利           | "一切 OK", "全部正常", "符合预期"                            |
+| **13**      | 167          | 性价比/有用         | 好, 比较, 价格, 柔软, 实用         | "非常好", "非常实用", "考虑到价格很不错"                     |
+| **14**      | 163          | 无法评价(未收到)    | 还没, 收到, 目前, 无法评价         | **"目前还没收到产品，无法给出评价"**, **"还没收到货"**       |
+| **15**      | 162          | 店铺推荐            | 店铺, 推荐, 棒, 购买, 恭喜         | "推荐这家店", "店铺和产品都值得推荐"                         |
+| **16**      | 153          | 家具/椅子类         | 椅子, 靠背, 组装, 螺丝, 缺少       | **"少发了一把椅子"**, "椅子不错", **"买了5把目前只收到了4把"** |
+| **17**      | 146          | 物流极速            | 快速, 效率, 速度, 超快, 服务       | "物流非常快", "送货效率很高"                                 |
+| **18**      | 138          | 退款/未收到         | 收到, 没收到, 退款, 完整           | **"没收到产品", "要求全额退款"**                             |
+
+使用 BERTopic 进行自然语言情感分析后，发现买家的抱怨主要集中在物流方面，我们需要进一步衡量物流指标。
+
+**观察到，实际的数据没有预想的糟糕，多数时候还是可以准时送达的。**
+
+> 图中 17 年 11 月是黑色星期五，物流压力陡增导致延迟率上升；另外，18 年 2 月和 3 月是巴西物流工人大罢工，全国邮政基本停摆，属于不可抗力导致的物流延迟率上升。
+
+![olist_bi_is_delayed](./../assets/img/olist_bi_is_delayed.png)
 

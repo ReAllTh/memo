@@ -10,7 +10,6 @@ mermaid: true
 **数据集来源**：
 
 - [Brazilian E-Commerce Public Dataset by Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)
-- [Marketing Funnel by Olist](https://www.kaggle.com/datasets/olistbr/marketing-funnel-olist)
 
 > 这是真实的商业数据，所有商店和合作伙伴的文本都已替换为《权力的游戏》中的家族名称。
 {: .prompt-tip }
@@ -117,30 +116,6 @@ erDiagram
 		string product_category_name_english UK
 	}
 
-	olist_marketing_qualified_leads {
-		string mql_id PK
-		date first_contact_date 
-		string landing_page_id 
-		string origin 
-	}
-
-	olist_closed_deals {
-		string mql_id FK
-		string seller_id FK
-		string sdr_id 
-		string sr_id 
-		timestamp won_date 
-		string business_segment 
-		string lead_type 
-		string lead_behaviour_profile 
-		bool has_company 
-		bool has_gtin 
-		string average_stock 
-		string business_type 
-		string declared_product_catalog_size 
-		string declared_monthly_revenue 
-	}
-
 	olist_customers||--o{olist_orders:"places"
 	olist_geolocation||--o{olist_customers:"locates"
 	olist_orders||--|{olist_order_items:"contains"
@@ -150,8 +125,6 @@ erDiagram
 	olist_sellers||--o{olist_order_items:"fulfills"
 	olist_geolocation||--o{olist_sellers:"locates"
 	product_category_name_translation||--o{olist_products:"translates_category"
-	olist_marketing_qualified_leads||--o|olist_closed_deals:"converts_to"
-	olist_closed_deals|o--||olist_sellers:"becomes_seller"
 ```
 
 ## 探索性数据分析与问题拆解

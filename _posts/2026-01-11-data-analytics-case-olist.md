@@ -224,13 +224,13 @@ freight_value                                                         float64  1
 
 **几乎所有订单都来自新买家，老买家复购意愿极低，这种模式下，新买家开发到瓶颈后，消费端乏力会自然显现。**
 
-**猜想 1.1 证实，猜想 2.2 证伪。**
+**猜想 1.1 证实，猜想 1.2 证伪。**
 
 ![olist_bi_user_type](./../assets/img/olist_bi_user_type.png)
 
 ![olist_bi_retention](./../assets/img/olist_bi_retention.png)
 
-**问题 2**：为什么买家不原意复购
+**问题 2**：为什么买家不愿意复购
 
 **猜想 2.1**：商品本身不需要频繁复购
 
